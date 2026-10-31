@@ -1,0 +1,78 @@
+{
+  "name": "zyrix",
+  "version": "0.14.3",
+  "description": "Biblioteca de WhatsApp Web para Node.js con mensajes con contexto, API por espacios, sesiones con adaptadores y kit de comandos",
+  "author": "Axelix09",
+  "license": "GPL-3.0-only",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Axelix09/zyrix.git"
+  },
+  "homepage": "https://github.com/Axelix09/zyrix#readme",
+  "bugs": {
+    "url": "https://github.com/Axelix09/zyrix/issues"
+  },
+  "keywords": [
+    "whatsapp",
+    "whatsapp-web",
+    "whatsapp-bot",
+    "whatsapp-api",
+    "whatsapp-library",
+    "whatsapp-multi-device",
+    "wa-bot",
+    "bot",
+    "chatbot",
+    "baileys",
+    "baileys-alternative",
+    "nodejs",
+    "esm",
+    "websocket",
+    "command-handler",
+    "command-kit",
+    "session-adapter",
+    "mongodb",
+    "plugins",
+    "bot-framework",
+    "typescript-types",
+    "zyrix",
+    "bot-whatsapp",
+    "libreria-whatsapp"
+  ],
+  "files": [
+    "src",
+    "index.d.ts",
+    "client.d.ts",
+    "kit.d.ts",
+    "README.md",
+    "LICENSE",
+    "THIRD_PARTY_NOTICES.md",
+    "THIRD_PARTY_LICENSES"
+  ],
+  "main": "src/index.js",
+  "types": "index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./index.d.ts",
+      "import": "./src/index.js",
+      "default": "./src/index.js"
+    },
+    "./kit": {
+      "types": "./kit.d.ts",
+      "import": "./src/kit.js",
+      "default": "./src/kit.js"
+    }
+  },
+  "engines": {
+    "node": ">=18.17"
+  },
+  "scripts": {
+    "test": "node --test"
+  },
+  "dependencies": {
+    "@wppconnect/wa-proto": "2.3000.1049217119",
+    "libsignal": "6.0.0",
+    "qrcode-terminal": "^0.12.0",
+    "ws": "^8.18.0"
+  },
+  "type": "module"
+}
