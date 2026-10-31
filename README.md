@@ -56,7 +56,7 @@ const launcher = await start({ session: './session', phoneNumber: '5215551234567
 launcher.sock.sendText('5215551234567@s.whatsapp.net', 'hola')
 ```
 
-Sin `phoneNumber` muestra el QR, igual que Baileys. También puedes pasar una función (normal o `async`) que se llama solo cuando hace falta vincular, por ejemplo `promptPhone('Número: ')`. `await start()` termina cuando el socket abre. Si falla antes, rechaza con un `ZyrixError` de tipo `closed`.
+Sin `phoneNumber` muestra el QR. También puedes pasar una función (normal o `async`) que se llama solo cuando hace falta vincular, por ejemplo `promptPhone('Número: ')`. `await start()` termina cuando el socket abre. Si falla antes, rechaza con un `ZyrixError` de tipo `closed`.
 
 El socket cambia cuando hay que volver a emparejar, así que la lógica que dependa de él va en `setup`. Si `setup` devuelve una función, se ejecuta cuando ese socket se retira:
 
