@@ -1,6 +1,6 @@
 # Zyrix
 
-Zyrix es una biblioteca de Node.js para hacer bots y automatizaciones sobre WhatsApp Web. La hizo Axelix09 desde cero, con Baileys como referencia pero sin copiarlo. La idea es que un bot completo se escriba con pocas líneas, que un error en tus handlers no tire el proceso y que puedas usar la API con tus propios nombres, en español si quieres.
+Zyrix es una biblioteca de Node.js para hacer bots y automatizaciones sobre WhatsApp Web. La hice yo Axelix09 desde cero, con Baileys como referencia pero sin copiarlo directamente. La idea es que un bot completo se escriba con pocas líneas, que un error en tus handlers no tire el proceso y que puedas usar la API con tus propios nombres, en español si quieres.
 
 El protocolo de WhatsApp Web cambia sin avisar y Zyrix no tiene relación con WhatsApp ni con Meta. Las pruebas locales no aseguran que el emparejamiento o la entrega funcionen en una cuenta real (más abajo, en [Validación con WhatsApp real](#validación-con-whatsapp-real), hay una lista de cosas para probar). Úsalo solo con cuentas y dispositivos que sean tuyos o que tengas autorizados.
 
@@ -56,7 +56,7 @@ const launcher = await start({ session: './session', phoneNumber: '5215551234567
 launcher.sock.sendText('5215551234567@s.whatsapp.net', 'hola')
 ```
 
-Sin `phoneNumber` muestra el QR, igual que Baileys. También puedes pasar una función (normal o `async`) que se llama solo cuando hace falta vincular, por ejemplo `promptPhone('Número: ')`. `await start()` termina cuando el socket abre. Si falla antes, rechaza con un `ZyrixError` de tipo `closed`.
+Sin `phoneNumber` muestra el QR. También puedes pasar una función (normal o `async`) que se llama solo cuando hace falta vincular, por ejemplo `promptPhone('Número: ')`. `await start()` termina cuando el socket abre. Si falla antes, rechaza con un `ZyrixError` de tipo `closed`.
 
 El socket cambia cuando hay que volver a emparejar, así que la lógica que dependa de él va en `setup`. Si `setup` devuelve una función, se ejecuta cuando ese socket se retira:
 
