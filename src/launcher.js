@@ -53,6 +53,7 @@ class Launcher extends EventEmitter {
     super({ captureRejections: true })
     const {
       session = 'session',
+      sessionEncryptionKey,
       phoneNumber,
       setup,
       connector = defaultConnector,
@@ -71,6 +72,7 @@ class Launcher extends EventEmitter {
     if (setup !== undefined && typeof setup !== 'function') throw new ZyrixError('setup debe ser una función', { kind: ErrorKind.INVALID })
     if (typeof connector !== 'function') throw new ZyrixError('connector debe ser una función', { kind: ErrorKind.INVALID })
     this.session = session
+    this.sessionEncryptionKey = sessionEncryptionKey
     this.phoneOption = phoneNumber
     this.setup = setup
     this.connector = connector
@@ -113,9 +115,9 @@ class Launcher extends EventEmitter {
   }
 
   async resolveAuth() {
-    if (typeof this.session === 'string') return (await import('./auth.js')).useFileAuthState(this.session)
+    if (typeof this.session === 'string') return (await import('./auth.js')).useFileAuthState(this.session, this.sessionEncryptionKey === undefined ? {} : { encryptionKey: this.sessionEncryptionKey })
     if (this.session?.state && typeof this.session.save === 'function') return this.session
-    return (await import('./authstore.js')).useAdapterAuthState(this.session)
+    return (await import('./authstore.js')).useAdapterAuthState(this.session, this.sessionEncryptionKey === undefined ? {} : { encryptionKey: this.sessionEncryptionKey })
   }
 
   canClear() {

@@ -2,7 +2,7 @@
 
 Zyrix es una biblioteca de Node.js para hacer bots y automatizaciones sobre WhatsApp Web. La hice yo Axelix09 desde cero, con Baileys como referencia pero sin copiarlo directamente. La idea es que un bot completo se escriba con pocas líneas, que un error en tus handlers no tire el proceso y que puedas usar la API con tus propios nombres, en español si quieres.
 
-El protocolo de WhatsApp Web cambia sin avisar y Zyrix no tiene relación con WhatsApp ni con Meta. Las pruebas locales no aseguran que el emparejamiento o la entrega funcionen en una cuenta real (más abajo, en [Validación con WhatsApp real](#validación-con-whatsapp-real), hay una lista de cosas para probar). Úsalo solo con cuentas y dispositivos que sean tuyos o que tengas autorizados.
+El protocolo de WhatsApp Web cambia sin avisar y Zyrix no tiene relación con WhatsApp ni con Meta. El autor ya probó Zyrix manualmente con WhatsApp real; las pruebas automatizadas no se conectan al servicio ni cubren todas las cuentas o funciones, así que los cambios de protocolo igual requieren volver a validar. Úsalo solo con cuentas y dispositivos que sean tuyos o que tengas autorizados.
 
 ## Contenido
 
@@ -107,6 +107,12 @@ Si necesitas escuchar eventos antes de arrancar, `createLauncher(options)` te da
 Todo lo demás se pasa al socket. Si usas un adaptador de sesión, el reinicio automático necesita que tenga un método `clear()`. Sin él, el lanzador emite `fatal`.
 
 `launcher.stop()` cierra sin desvincular el dispositivo. `launcher.logout()` lo desvincula y borra la sesión. También hay utilidades sueltas: `parsePhoneNumber`, `formatPairingCode`, `promptPhone` y `reasonName`.
+
+Para cifrar automáticamente la sesión de archivo, pasa un secreto externo al proceso (no lo escribas en el código ni lo guardes junto a la sesión):
+```js
+await start({ session: './session', sessionEncryptionKey: process.env.ZYRIX_SESSION_KEY })
+```
+Genera un valor aleatorio de al menos 16 bytes y respáldalo en un gestor de secretos. Al migrar una sesión antigua, Zyrix la reescribe cifrada.
 
 ### Sin el lanzador
 
@@ -247,7 +253,7 @@ Si el grupo tiene mensajes temporales y no indicas `expiration`, Zyrix usa la du
 
 ### Media
 
-Los tipos son `image`, `video`, `audio`, `document` y `sticker`. Puedes pasar un Buffer, un `Uint8Array`, una ruta, una URL, `{ url }`, `{ path }` o `{ stream }`, siempre dentro de `maxMediaBytes` (100 MiB por defecto). Si pasas un stream, Zyrix lo lee completo y lo guarda en memoria antes de subirlo, así que no es una subida por streaming. También se aceptan `thumbnail`, `width`, `height`, `seconds` y `waveform`. Para descifrar un adjunto que te llega, usa `downloadMedia(message)`.
+Los tipos son `image`, `video`, `audio`, `document` y `sticker`. Puedes pasar un Buffer, un `Uint8Array`, una ruta, una URL, `{ url }`, `{ path }` o `{ stream }`. Los Buffer/URLs siguen sujetos a `maxMediaBytes` (100 MiB por defecto). Para archivos grandes, `{ stream }` se escribe por bloques a un temporal privado y luego se cifra/sube usando el flujo de archivos; el límite es `maxFileBytes` (2 GiB por defecto), y hace falta espacio libre en disco (durante el envío puede necesitar cerca de dos veces el tamaño del archivo, por los temporales de origen y cifrado). También se aceptan `thumbnail`, `width`, `height`, `seconds` y `waveform`. Para adjuntos pequeños, `downloadMedia(message)` devuelve un Buffer. Para descargar un adjunto grande sin cargarlo entero en memoria, usa `downloadMediaToFile(message, outputPath, { maxBytes, timeout })`: descifra por bloques y solo publica el archivo final si el MAC es válido. No sobrescribe un archivo de salida existente.
 
 `sendAlbum` sube cada imagen o vídeo y los asocia con `MessageAssociation.MEDIA_ALBUM`. Devuelve los mensajes y los contadores de imágenes y vídeos. El protocolo no garantiza que todas las versiones de WhatsApp los muestren como una sola tarjeta.
 
@@ -308,13 +314,13 @@ El cambio de nombre del perfil usa el generador de parches `appStatePatch`, con 
 
 ### Sesión en archivos
 
-`useFileAuthState(dir, { debounceMs })` guarda las claves en un solo archivo, `state.json`, con escritura atómica, permisos `0600` y una copia `state.json.bak`. Los guardados son asíncronos y se agrupan según `debounceMs` (300 por defecto). `auth.flush()` espera a que terminen y se ejecuta solo en `end()`, en `logout()` y al salir del proceso. Si falla una escritura, te llega como evento `error`. Si había `creds.json` y `keys.json` de versiones anteriores, los lee y los migra al snapshot.
+`useFileAuthState(dir, { debounceMs, encryptionKey })` guarda las claves en un solo archivo, `state.json`, con escritura atómica, permisos `0600` y una copia `state.json.bak`. `encryptionKey` activa cifrado autenticado AES-256-GCM con clave derivada mediante scrypt. Guárdala fuera de la carpeta y de Mongo (por ejemplo, en un secret manager); si la pierdes, no podrás recuperar la sesión. Sin esa opción, se mantiene compatibilidad con snapshots JSON anteriores sin cifrar. Los guardados son asíncronos y se agrupan según `debounceMs` (300 por defecto). `auth.flush()` espera a que terminen y rechaza si no se pudo persistir el estado; el socket además informa del fallo por el evento `error`. Si había `creds.json` y `keys.json` de versiones anteriores, los lee y los migra al snapshot.
 
-Esa carpeta es privada. No la subas a un repositorio ni la compartas.
+La biblioteca corrige permisos en sistemas POSIX y rechaza symlinks para la carpeta y los archivos de sesión. Mantén la carpeta privada y no la subas a un repositorio ni la compartas. El cifrado opcional protege los archivos y backups en reposo, pero no sustituye el control de acceso al proceso ni al secreto.
 
 ### Adaptadores
 
-`useAdapterAuthState(adapter)` acepta cualquier objeto con `{ read(), write(data) }`. Vienen incluidos `memoryAdapter()` y `mongoAdapter(collection, id)`, que funciona con el driver oficial de MongoDB. Si la sesión está corrupta lanza un error, en lugar de crear otra y hacerte perder el emparejamiento.
+`useAdapterAuthState(adapter, { encryptionKey })` acepta cualquier objeto con `{ read(), write(data) }` y cifra el snapshot si pasas una clave. `start`, `createLauncher` y `connect` aceptan `sessionEncryptionKey` para usar ese mismo cifrado al crear la sesión automáticamente. Vienen incluidos `memoryAdapter()` y `mongoAdapter(collection, id)`, que funciona con el driver oficial de MongoDB. Para varias sesiones, usa un `id` distinto por cuenta (`mongoAdapter(collection, 'bot-a')`, `mongoAdapter(collection, 'bot-b')`); cada una queda en un documento independiente y el adapter aplica un límite seguro por debajo de 16 MB BSON. Si la sesión está corrupta lanza un error, en lugar de crear otra y hacerte perder el emparejamiento.
 
 Hay un límite que conviene tener presente: el adaptador guarda el estado completo cada vez, agrupado por `debounceMs`, y todavía no escribe por clave. Eso incluye credenciales, sesiones Signal, sender keys y claves de app-state, y crece con la cantidad de contactos y grupos. Con `mongoAdapter` el documento no puede pasar de los 16 MB de MongoDB. Si manejas varias sesiones en un proceso, o cuentas con mucha actividad, usa un documento por sesión (el `id` de `mongoAdapter(collection, id)`), sube el `debounceMs` y vigila el tamaño de `state.json`.
 
@@ -360,7 +366,8 @@ Además de las de conexión, `makeSocket` acepta:
 | Opción | Descripción |
 | --- | --- |
 | `browser` | `[sistema, navegador, versión]`. Por defecto `['Mac OS', 'Chrome', '4.0.0']`. Se usa para armar el `UserAgent`, el `webInfo` y los `DeviceProps` del registro. |
-| `maxMediaBytes` | Límite de tamaño de media. 100 MiB por defecto, para no gastar memoria sin querer. |
+| `maxMediaBytes` | Límite para media que se maneja en memoria. 100 MiB por defecto. |
+| `maxFileBytes` | Límite para media a disco/stream. 2 GiB por defecto; requiere espacio temporal suficiente. |
 | `logger` | Tu propio logger. |
 | `getMessage` | Recupera mensajes para contestar recibos de reintento. |
 | `autoRejectCalls` | Rechaza las llamadas automáticamente. |
@@ -399,6 +406,8 @@ Si tu bot solo atiende a contactos conocidos o maneja información sensible, usa
 
 ### Otras protecciones
 
+Las URLs HTTP(S) pasadas como media se validan para rechazar loopback, redes privadas/link-local, hosts locales, puertos no estándar y redirects hacia destinos no públicos. Aun así, evita pasar URLs arbitrarias controladas por usuarios a un bot expuesto a Internet y aplica reglas de egress en el servidor: el control de red/DNS de tu entorno es la defensa final contra cambios maliciosos de DNS. Las operaciones de media usan límites de tamaño; la descarga remota tiene timeout configurable.
+
 Los mensajes entrantes que ya se procesaron se descartan por id durante 10 minutos, para que una reentrega del servidor no genere errores ni reintentos. Al sacar a alguien de un grupo, se rota la sender key propia de ese grupo. Las notificaciones de cambio de dispositivos invalidan la caché de dispositivos, y las de `encrypt` reponen prekeys.
 
 ## Business, canales y comunidades
@@ -433,13 +442,13 @@ Si haces el puente, protégelo con control de acceso y no expongas las claves de
 - **Votos de encuestas.** `poll.vote` entrega el dato crudo. Zyrix no lo descifra ni lo relaciona con las opciones de la encuesta.
 - **Migrar sesiones de PN a LID.** Se conservan los alias PN/LID que se conocen, pero las sesiones criptográficas de Signal no se migran de un identificador a otro.
 - **Media vencida.** `downloadMedia` falla si el enlace ya expiró. No pide una nueva carga ni reintenta a través del teléfono vinculado.
-- **Media por streaming.** `MediaInput` acepta `{ stream }` y hay código auxiliar para transformar por bloques, pero el envío y la descarga no están conectados como una API de streaming. Todo se acumula en memoria, dentro de `maxMediaBytes`. No existen `sendMediaStream` ni `downloadMediaStream`.
-- **Colas por chat.** `PartitionedSendQueue` existe como utilidad interna, pero `Socket` no la usa. Los envíos pasan por una cola global para proteger el estado de Signal.
-- **Guardado por clave.** Los adaptadores guardan el estado completo (ver [Sesiones y store](#sesiones-y-store)).
+- **Streaming directo de extremo a extremo.** El envío desde `{ stream }` y `downloadMediaToFile` ya evitan cargar el archivo entero en memoria, pero usan temporales locales; no hay API que conecte el stream de red directamente con el de cifrado/descifrado.
+- **Guardado por clave.** Los adaptadores aún escriben el snapshot completo en cada guardado. Normalmente alcanza; si una sesión de mucho uso se acerca al límite BSON, ahí sí vale la pena rediseñar esta persistencia.
+- **Paralelismo de envíos por chat.** Los envíos siguen serializados globalmente para proteger las sesiones Signal compartidas y mantener el orden. No lo convertí a colas por chat: primero necesitaría pruebas de concurrencia con sesiones que se solapan.
 
 ## Validación con WhatsApp real
 
-Las pruebas automáticas no tocan los servidores de WhatsApp, y el protocolo puede cambiar sin aviso. Antes de confiar en una versión, vincula una cuenta de prueba (no tu cuenta principal) y déjala corriendo unos días. Esto es lo que yo revisaría:
+Zyrix ya se probó manualmente con WhatsApp real. La suite automatizada no repite esas operaciones; este checklist sirve para ampliar la prueba o repetirla al cambiar protocolo/conexión. Hazlo con una cuenta de prueba (no tu cuenta principal):
 
 - Emparejar por QR y por código, reiniciar el proceso y ver que la sesión se recupera sin volver a vincular.
 - Escribirle a contactos nuevos y a contactos que reinstalan WhatsApp (`identity.changed`).

@@ -3,6 +3,7 @@ import fsPromises from 'node:fs/promises'
 import path from 'node:path'
 import crypto from 'node:crypto'
 import { Curve, signalPub } from './crypto.js'
+import { parseAuthSnapshot, serializeAuthSnapshot, validateSessionEncryptionKey } from './auth-snapshot.js'
 
 export const MAX_MONGO_DOCUMENT_BYTES = 16 * 1024 * 1024 - 2048
 
@@ -63,6 +64,10 @@ export function initCreds() {
   }
 }
 
+const isEncryptedSnapshot = (raw) => {
+  try { return JSON.parse(raw)?.format === 'zyrix-auth-encrypted-v1' } catch { return false }
+}
+
 const bufferReviver = (k, v) => {
   if (v && v.type === 'Buffer' && Array.isArray(v.data)) {
     return Buffer.from(v.data)
@@ -72,6 +77,7 @@ const bufferReviver = (k, v) => {
 
 export function useFileAuthState(dir, options = {}) {
   const debounceMs = options.debounceMs ?? 300
+  const encryptionKey = validateSessionEncryptionKey(options.encryptionKey)
   const sessionDir = path.resolve(dir)
   const statePath = path.join(sessionDir, 'state.json')
   const backupPath = path.join(sessionDir, 'state.json.bak')
@@ -80,17 +86,31 @@ export function useFileAuthState(dir, options = {}) {
   if (!fs.existsSync(sessionDir)) {
     fs.mkdirSync(sessionDir, { recursive: true, mode: 0o700 })
   }
+  const dirInfo = fs.lstatSync(sessionDir)
+  if (!dirInfo.isDirectory() || dirInfo.isSymbolicLink()) throw new Error('el directorio de sesión debe ser un directorio real, no un symlink')
+  if (process.platform !== 'win32') fs.chmodSync(sessionDir, 0o700)
+  for (const file of [statePath, backupPath]) {
+    let info
+    try { info = fs.lstatSync(file) } catch (error) {
+      if (error.code === 'ENOENT') continue
+      throw error
+    }
+    if (!info.isFile() || info.isSymbolicLink()) throw new Error(`archivo de sesión inválido o symlink: ${file}`)
+    if (process.platform !== 'win32') fs.chmodSync(file, 0o600)
+  }
 
   let state = { creds: initCreds(), keys: initKeys() }
   let saveTimer = null
   let pendingData = null
   let isSaving = false
   let saveChain = Promise.resolve()
+  let shouldMigratePlaintext = false
 
   if (fs.existsSync(statePath)) {
     try {
       const raw = fs.readFileSync(statePath, 'utf8')
-      const parsed = JSON.parse(raw, bufferReviver)
+      const parsed = parseAuthSnapshot(raw, encryptionKey)
+      shouldMigratePlaintext = Boolean(encryptionKey) && !isEncryptedSnapshot(raw)
       state = {
         creds: parsed.creds || initCreds(),
         keys: initKeys(parsed.keys)
@@ -99,7 +119,8 @@ export function useFileAuthState(dir, options = {}) {
       if (fs.existsSync(backupPath)) {
         try {
           const rawBak = fs.readFileSync(backupPath, 'utf8')
-          const parsedBak = JSON.parse(rawBak, bufferReviver)
+          const parsedBak = parseAuthSnapshot(rawBak, encryptionKey)
+          shouldMigratePlaintext = Boolean(encryptionKey) && !isEncryptedSnapshot(rawBak)
           state = {
             creds: parsedBak.creds || initCreds(),
             keys: initKeys(parsedBak.keys)
@@ -114,18 +135,27 @@ export function useFileAuthState(dir, options = {}) {
   }
 
   const writeDisk = (payload) => {
-    const write = saveChain.then(async () => {
+    const write = saveChain.catch(() => {}).then(async () => {
       isSaving = true
       try {
-        await fsPromises.writeFile(tempPath, payload, { mode: 0o600, encoding: 'utf8' })
+        await fsPromises.writeFile(tempPath, payload, { mode: 0o600, encoding: 'utf8', flag: 'wx' })
+        if (process.platform !== 'win32') await fsPromises.chmod(tempPath, 0o600)
         if (fs.existsSync(statePath)) {
-          await fsPromises.copyFile(statePath, backupPath)
+          const previous = await fsPromises.readFile(statePath, 'utf8')
+          if (encryptionKey && !isEncryptedSnapshot(previous)) {
+            await fsPromises.writeFile(backupPath, payload, { mode: 0o600, encoding: 'utf8' })
+          } else {
+            await fsPromises.copyFile(statePath, backupPath)
+          }
+          if (process.platform !== 'win32') await fsPromises.chmod(backupPath, 0o600)
         }
         await fsPromises.rename(tempPath, statePath)
+        if (process.platform !== 'win32') await fsPromises.chmod(statePath, 0o600)
       } catch (err) {
-        if (typeof authObject.onSaveError === 'function') {
-          authObject.onSaveError(err)
-        }
+        pendingData = payload
+        await fsPromises.rm(tempPath, { force: true }).catch(() => {})
+        if (typeof authObject.onSaveError === 'function') authObject.onSaveError(err)
+        throw err
       } finally {
         isSaving = false
       }
@@ -135,7 +165,7 @@ export function useFileAuthState(dir, options = {}) {
   }
 
   const scheduleSave = () => {
-    pendingData = JSON.stringify(state, null, 2)
+    pendingData = serializeAuthSnapshot(state, encryptionKey)
     if (saveTimer) return
 
     saveTimer = setTimeout(async () => {
@@ -143,7 +173,7 @@ export function useFileAuthState(dir, options = {}) {
       if (pendingData) {
         const toWrite = pendingData
         pendingData = null
-        await writeDisk(toWrite)
+        await writeDisk(toWrite).catch(() => {})
       }
     }, debounceMs)
     if (typeof saveTimer.unref === 'function') saveTimer.unref()
@@ -167,7 +197,7 @@ export function useFileAuthState(dir, options = {}) {
     onSaveError: null
   }
 
-  if (repairCreds(state.creds)) scheduleSave()
+  if (repairCreds(state.creds) || shouldMigratePlaintext) scheduleSave()
 
   return authObject
 }

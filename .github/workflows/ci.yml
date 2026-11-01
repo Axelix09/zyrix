@@ -1,0 +1,28 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node-version: [18, 22]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+      - name: Install dependencies
+        run: npm install --no-package-lock
+      - name: Type declarations smoke check
+        run: npm run typecheck
+      - name: Run tests (fails if no tests are discovered)
+        run: npm test
+      - name: Syntax and package import smoke checks
+        run: |
+          for file in src/*.js; do node --check "$file"; done
+          node --input-type=module -e "import('./src/index.js').then((mod) => { if (!mod.content || typeof mod.parseMessage !== 'function') process.exit(1); console.log('Package import smoke check passed') })"

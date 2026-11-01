@@ -1,5 +1,6 @@
 import crypto from 'crypto'
 import fs from 'fs'
+import path from 'node:path'
 import { hkdf, aesCbcEncrypt, aesCbcDecrypt, hmacSha256, sha256 } from './crypto.js'
 
 const INFO = {
@@ -73,6 +74,73 @@ const encryptMediaFile = async (inputPath, outputPath, type) => {
   return { mediaKey, fileSha256: plainHash.digest(), fileEncSha256: encHash.digest(), fileLength }
 }
 
+const decryptMediaToFile = async (encryptedStream, outputPath, mediaKey, type, { maxBytes = Infinity } = {}) => {
+  if (!encryptedStream || typeof encryptedStream[Symbol.asyncIterator] !== 'function') throw new TypeError('encryptedStream debe ser async iterable')
+  if (typeof outputPath !== 'string' || !outputPath) throw new TypeError('outputPath debe ser una ruta no vacía')
+  if (!(maxBytes === Infinity || Number.isSafeInteger(maxBytes) && maxBytes > 0)) throw new TypeError('maxBytes debe ser un entero positivo')
+  const target = path.resolve(outputPath)
+  const temp = path.join(path.dirname(target), `.${path.basename(target)}.${crypto.randomUUID()}.tmp`)
+  const { iv, cipherKey, macKey } = expand(mediaKey, type)
+  const decipher = crypto.createDecipheriv('aes-256-cbc', cipherKey, iv)
+  const hmac = crypto.createHmac('sha256', macKey).update(iv)
+  let handle
+  let tail = Buffer.alloc(0)
+  let encryptedBytes = 0
+  let encryptedPayloadBytes = 0
+  let plainBytes = 0
+  const maxEncryptedBytes = maxBytes === Infinity ? Infinity : Math.ceil(maxBytes / 16) * 16 + 26
+  const writeAll = async (buffer) => {
+    let offset = 0
+    while (offset < buffer.length) {
+      const { bytesWritten } = await handle.write(buffer, offset, buffer.length - offset)
+      if (!bytesWritten) throw new Error('no se pudo escribir el archivo descifrado')
+      offset += bytesWritten
+    }
+  }
+  try {
+    handle = await fs.promises.open(temp, 'wx', 0o600)
+    for await (const chunk of encryptedStream) {
+      const part = Buffer.from(chunk)
+      encryptedBytes += part.length
+      if (encryptedBytes > maxEncryptedBytes) throw new RangeError(`el media supera el límite de ${maxBytes} bytes`)
+      const joined = tail.length ? Buffer.concat([tail, part]) : part
+      if (joined.length <= 10) {
+        tail = joined
+        continue
+      }
+      const split = joined.length - 10
+      const cipherText = joined.subarray(0, split)
+      tail = Buffer.from(joined.subarray(split))
+      encryptedPayloadBytes += cipherText.length
+      hmac.update(cipherText)
+      const plain = decipher.update(cipherText)
+      plainBytes += plain.length
+      if (plainBytes > maxBytes) throw new RangeError(`el media supera el límite de ${maxBytes} bytes`)
+      if (plain.length) await writeAll(plain)
+    }
+    if (tail.length !== 10 || encryptedPayloadBytes < 16 || encryptedPayloadBytes % 16 !== 0) {
+      throw new Error('media cifrado truncado o malformado')
+    }
+    const expected = hmac.digest().subarray(0, 10)
+    if (!crypto.timingSafeEqual(expected, tail)) throw new Error('MAC de media inválido')
+    const final = decipher.final()
+    plainBytes += final.length
+    if (plainBytes > maxBytes) throw new RangeError(`el media supera el límite de ${maxBytes} bytes`)
+    if (final.length) await writeAll(final)
+    await handle.sync()
+    await handle.close()
+    handle = null
+    // link es atómico y falla si outputPath ya existe; nunca pisa un archivo del usuario.
+    await fs.promises.link(temp, target)
+    await fs.promises.rm(temp, { force: true })
+    return target
+  } catch (error) {
+    if (handle) await handle.close().catch(() => {})
+    await fs.promises.rm(temp, { force: true }).catch(() => {})
+    throw error
+  }
+}
+
 const decryptMedia = (body, mediaKey, type) => {
   if (!Buffer.isBuffer(body) && !(body instanceof Uint8Array)) throw new TypeError('el media cifrado debe ser un Buffer o Uint8Array')
   body = Buffer.from(body)
@@ -85,4 +153,4 @@ const decryptMedia = (body, mediaKey, type) => {
   return aesCbcDecrypt(enc, cipherKey, iv)
 }
 
-export { encryptMedia, encryptMediaFile, decryptMedia }
+export { encryptMedia, encryptMediaFile, decryptMedia, decryptMediaToFile }

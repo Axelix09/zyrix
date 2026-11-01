@@ -1,5 +1,7 @@
 import crypto from 'crypto'
 import fs from 'fs'
+import dns from 'node:dns/promises'
+import net from 'node:net'
 import { proto } from './proto.js'
 
 const S_WHATSAPP_NET = 's.whatsapp.net'
@@ -134,16 +136,68 @@ const sniffMimeType = (buffer, fallback = undefined) => {
   return fallback
 }
 
+const isPrivateV4 = (ip) => {
+  const a = ip.split('.').map(Number)
+  return a[0] === 0 || a[0] === 10 || a[0] === 127 || a[0] >= 224 ||
+    (a[0] === 169 && a[1] === 254) || (a[0] === 172 && a[1] >= 16 && a[1] <= 31) ||
+    (a[0] === 192 && (a[1] === 0 || a[1] === 2 || a[1] === 168 || (a[1] === 88 && a[2] === 99))) ||
+    (a[0] === 100 && a[1] >= 64 && a[1] <= 127) ||
+    (a[0] === 198 && (a[1] === 18 || a[1] === 19 || a[1] === 51 && a[2] === 100)) ||
+    (a[0] === 203 && a[1] === 0 && a[2] === 113)
+}
+const isPublicAddress = (ip) => {
+  const family = net.isIP(ip)
+  if (family === 4) return !isPrivateV4(ip)
+  if (family !== 6) return false
+  const normalized = ip.toLowerCase().split('%')[0]
+  const mapped = normalized.match(/^::ffff:(\d+\.\d+\.\d+\.\d+)$/)
+  if (mapped) return isPublicAddress(mapped[1])
+  // Solo direcciones IPv6 globales unicast; descarta loopback, ULA, link-local y rangos especiales.
+  return /^2|^3/.test(normalized) && !normalized.startsWith('2001:db8:')
+}
+const assertPublicMediaUrl = async (value) => {
+  const url = value instanceof URL ? value : new URL(value)
+  if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password || !['', '80', '443'].includes(url.port)) {
+    throw new Error('URL de media no permitida: solo HTTP(S) público en puertos 80/443')
+  }
+  const host = url.hostname.replace(/^\[|\]$/g, '').toLowerCase()
+  if (host === 'localhost' || host.endsWith('.localhost') || host.endsWith('.local') || host.endsWith('.internal') || host.endsWith('.test')) {
+    throw new Error('URL de media no permitida: host local')
+  }
+  const addresses = net.isIP(host) ? [{ address: host }] : await dns.lookup(host, { all: true, verbatim: true })
+  if (!addresses.length || addresses.some(({ address }) => !isPublicAddress(address))) {
+    throw new Error('URL de media no permitida: el host no resuelve exclusivamente a IPs públicas')
+  }
+  return url
+}
 const fetchToBuffer = async (url, { limit = Infinity, timeout = 30000, headers = {} } = {}) => {
-  const res = await fetch(url, {
-    redirect: 'follow',
-    headers: { 'user-agent': BROWSER_UA, accept: '*/*', ...headers },
-    signal: AbortSignal.timeout(timeout)
-  })
-  if (!res.ok) throw new Error(`descarga fallida ${res.status}${res.statusText ? ` ${res.statusText}` : ''}`)
-  const declared = Number(res.headers.get('content-length'))
-  if (Number.isFinite(declared) && declared > limit) throw new RangeError(`el media supera el límite de ${limit} bytes`)
-  return res.body ? readStreamLimited(res.body, limit) : Buffer.alloc(0)
+  let current = await assertPublicMediaUrl(url)
+  let requestHeaders = { 'user-agent': BROWSER_UA, accept: '*/*', ...headers }
+  for (let redirects = 0; redirects <= 5; redirects++) {
+    await assertPublicMediaUrl(current)
+    const res = await fetch(current, { redirect: 'manual', headers: requestHeaders, signal: AbortSignal.timeout(timeout) })
+    if ([301, 302, 303, 307, 308].includes(res.status)) {
+      const location = res.headers.get('location')
+      await res.body?.cancel()
+      if (!location || redirects === 5) throw new Error('redirect de media inválido o demasiado largo')
+      const next = new URL(location, current)
+      if (next.host !== current.host) {
+        const safeHeaders = new Headers(requestHeaders)
+        for (const name of ['authorization', 'cookie', 'proxy-authorization']) safeHeaders.delete(name)
+        requestHeaders = Object.fromEntries(safeHeaders)
+      }
+      current = next
+      continue
+    }
+    if (!res.ok) throw new Error(`descarga fallida ${res.status}${res.statusText ? ` ${res.statusText}` : ''}`)
+    const declared = Number(res.headers.get('content-length'))
+    if (Number.isFinite(declared) && declared > limit) {
+      await res.body?.cancel()
+      throw new RangeError(`el media supera el límite de ${limit} bytes`)
+    }
+    return res.body ? readStreamLimited(res.body, limit) : Buffer.alloc(0)
+  }
+  throw new Error('demasiados redirects al descargar media')
 }
 
 const toBuffer = async (input, limit = Infinity) => {

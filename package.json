@@ -1,7 +1,7 @@
 {
-  "name": "zyrix",
-  "version": "0.14.3",
-  "description": "Biblioteca de WhatsApp Web para Node.js con mensajes con contexto, API por espacios, sesiones con adaptadores y kit de comandos",
+  "name": "@axel-dev09/zyrix",
+  "version": "0.16.0",
+  "description": "Biblioteca de WhatsApp Web para Node.js con API por espacios, sesiones cifrables y kit de comandos",
   "author": "Axelix09",
   "license": "GPL-3.0-only",
   "repository": {
@@ -46,7 +46,11 @@
     "README.md",
     "LICENSE",
     "THIRD_PARTY_NOTICES.md",
-    "THIRD_PARTY_LICENSES"
+    "THIRD_PARTY_LICENSES",
+    "CHANGELOG.md",
+    "tests",
+    "scripts/check-test-discovery.mjs",
+    "type-tests"
   ],
   "main": "src/index.js",
   "types": "index.d.ts",
@@ -66,7 +70,9 @@
     "node": ">=18.17"
   },
   "scripts": {
-    "test": "node --test"
+    "test": "node scripts/check-test-discovery.mjs && node --test",
+    "test:run": "node --test",
+    "typecheck": "tsc --noEmit --strict --module NodeNext --moduleResolution NodeNext --target ES2022 --lib ES2022,DOM --skipLibCheck false type-tests/types-smoke.ts index.d.ts client.d.ts kit.d.ts"
   },
   "dependencies": {
     "@wppconnect/wa-proto": "2.3000.1049217119",
@@ -74,5 +80,9 @@
     "qrcode-terminal": "^0.12.0",
     "ws": "^8.18.0"
   },
-  "type": "module"
+  "type": "module",
+  "devDependencies": {
+    "@types/node": "^22.13.14",
+    "typescript": "^5.7.3"
+  }
 }

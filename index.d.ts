@@ -22,6 +22,16 @@ export type SendOptions = {
   expiration?: number
   viewOnce?: boolean
   linkPreview?: { url: string; title?: string; description?: string; thumbnail?: Uint8Array }
+  messageId?: string
+  waitAck?: boolean
+  ackTimeoutMs?: number
+  additionalNodes?: ProtocolNode[]
+}
+
+export type ProtocolNode = {
+  tag: string
+  attrs: Record<string, string>
+  content?: (ProtocolNode | Uint8Array | string)[]
 }
 
 export type ButtonOption = { id: string; text: string }
@@ -69,7 +79,7 @@ export type AuthState = {
 
 export type CloseReason = { code?: number; reason?: number | 'qr-timeout'; loggedOut?: boolean; reconnecting?: boolean }
 export type SendResult = { key: MessageKey; message: Record<string, unknown>; status: 'sent' | 'unconfirmed'; messageTimestamp: number }
-export type MediaInput = Uint8Array | string | { url: string; timeout?: number } | { path: string } | { stream: AsyncIterable<Uint8Array> }
+export type MediaInput = Uint8Array | string | { url: string; timeout?: number; headers?: Record<string, string> } | { path: string } | { stream: AsyncIterable<Uint8Array> }
 export type ParsedMessage = {
   id: string
   chat: string
@@ -101,7 +111,7 @@ export type ZyrixMessages = {
   disconnect: Record<string, string>
   fatal: Record<string, string>
   relaunch: Record<string, string>
-  issue: Record<string, (...args: any[]) => string>
+  issue: Record<string, (...args: unknown[]) => string>
   signal: Record<string, string | ((signal: string) => string)>
 }
 export declare const DEFAULT_MESSAGES: Readonly<ZyrixMessages>
@@ -206,7 +216,7 @@ export class MessageContext {
   expiration?: number
   viewOnce: boolean
   key: MessageKey
-  message: Record<string, any>
+  message: Record<string, unknown>
   command?: string
   prefix?: string
   args?: string[]
@@ -229,14 +239,24 @@ export class MessageContext {
   ask(prompt?: MessageContent, options?: AskOptions): Promise<MessageContext | null>
 }
 
+export type SessionEncryptionKey = string | Uint8Array
+export type SessionOptions = { debounceMs?: number; encryptionKey?: SessionEncryptionKey }
 export type SessionAdapter = { read(): string | null | undefined | Promise<string | null | undefined>; write(data: string): void | Promise<void> }
-export function useAdapterAuthState(adapter: SessionAdapter, options?: { debounceMs?: number }): Promise<AuthState>
+export function useAdapterAuthState(adapter: SessionAdapter, options?: SessionOptions): Promise<AuthState>
 export function useMemoryAuthState(initial?: string | null): Promise<AuthState>
 export function memoryAdapter(initial?: string | null): SessionAdapter
-export function mongoAdapter(collection: { findOne(filter: any): Promise<any>; updateOne(filter: any, update: any, options?: any): Promise<any> }, id?: string): SessionAdapter
+export type MongoSessionCollection = {
+  findOne(filter: { _id: string }): Promise<unknown>
+  updateOne(
+    filter: { _id: string },
+    update: { $set: { data: string; updatedAt: Date; byteLength?: number } },
+    options?: { upsert?: boolean },
+  ): Promise<unknown>
+}
+export function mongoAdapter(collection: MongoSessionCollection, id?: string): SessionAdapter
 export const MAX_MONGO_DOCUMENT_BYTES: number
 
-export type ConnectOptions = Omit<Record<string, any>, 'auth'> & { session?: string | SessionAdapter; auth?: AuthState }
+export type ConnectOptions = Omit<Partial<SocketOptions>, 'auth'> & { session?: string | SessionAdapter; sessionEncryptionKey?: SessionEncryptionKey; auth?: AuthState }
 export function connect(options?: ConnectOptions): Promise<Socket>
 
 export type GroupsApi = {
@@ -260,7 +280,7 @@ export type GroupsApi = {
   inviteCode(group: string): Promise<string | undefined>
   revokeInvite(group: string): Promise<string | undefined>
   join(code: string): Promise<string | undefined>
-  joinFromInvite(keyOrJid: string | MessageKey, invite: Record<string, any>): Promise<string | undefined>
+  joinFromInvite(keyOrJid: string | MessageKey, invite: Record<string, unknown>): Promise<string | undefined>
   inviteInfo(code: string): Promise<GroupMetadata | undefined>
   requests(group: string): Promise<Record<string, string>[]>
   approve(group: string, users: string | string[]): Promise<Record<string, string>[]>
@@ -374,6 +394,7 @@ export type PresenceApi = {
 }
 
 export class Socket {
+  constructor(options: SocketOptions)
   readonly ev: Socket
   readonly user?: { id: string; lid?: string; name?: string }
   readonly authState: AuthState
@@ -385,6 +406,7 @@ export class Socket {
   readonly business: Readonly<BusinessApi>
   readonly newsletters: Readonly<NewslettersApi>
   readonly communities: Readonly<CommunityApi>
+  start(): Promise<this>
   waitForMessage(filter?: (m: MessageContext) => boolean, timeout?: number): Promise<MessageContext | null>
   on<E extends keyof SocketEventMap>(event: E, listener: SocketEventMap[E]): this
   once<E extends keyof SocketEventMap>(event: E, listener: SocketEventMap[E]): this
@@ -407,7 +429,8 @@ export class Socket {
   sendReaction(to: string, target: IncomingMessage | MessageKey, emoji?: string): Promise<SendResult>
   sendLocation(to: string, options: SendOptions & { latitude: number; longitude: number; name?: string; address?: string; comment?: string }): Promise<SendResult>
   sendContact(to: string, options: SendOptions & { displayName: string; vcard: string }): Promise<SendResult>
-  downloadMedia(message: Record<string, any>): Promise<Uint8Array>
+  downloadMedia(message: Record<string, unknown>): Promise<Uint8Array>
+  downloadMediaToFile(message: Record<string, unknown>, outputPath: string, options?: { maxBytes?: number; timeout?: number; mediaType?: 'image' | 'video' | 'audio' | 'document' | 'sticker' }): Promise<string>
   updateProfileStatus(status: string): Promise<unknown>
   updateProfileName(name: string): Promise<unknown>
   updateProfilePicture(jid: string, image: Uint8Array): Promise<unknown>
@@ -453,7 +476,7 @@ export class Socket {
   groupRevokeInvite(group: string): Promise<string | undefined>
   groupAcceptInvite(code: string): Promise<string | undefined>
   groupGetInviteInfo(code: string): Promise<GroupMetadata | undefined>
-  groupAcceptInviteV4(keyOrJid: string | MessageKey, inviteMessage: Record<string, any>): Promise<string | undefined>
+  groupAcceptInviteV4(keyOrJid: string | MessageKey, inviteMessage: Record<string, unknown>): Promise<string | undefined>
   groupFetchAllParticipating(): Promise<Record<string, GroupMetadata>>
   groupRequestParticipantsList(group: string): Promise<Record<string, string>[]>
   groupRequestParticipantsUpdate(group: string, participants: string[], action: 'approve' | 'reject'): Promise<Record<string, string>[]>
@@ -474,7 +497,7 @@ export class Socket {
   sendGroupInvite(to: string, options: SendOptions & { groupJid: string; inviteCode: string; inviteExpiration?: number; groupName?: string; caption?: string }): Promise<SendResult>
   sendDelete(to: string, target: IncomingMessage | MessageKey): Promise<SendResult>
   sendEdit(to: string, target: IncomingMessage | MessageKey, text: string): Promise<SendResult>
-  forward(to: string, source: IncomingMessage | Record<string, any>, options?: SendOptions): Promise<SendResult>
+  forward(to: string, source: IncomingMessage | Record<string, unknown>, options?: SendOptions): Promise<SendResult>
   waitForOpen(timeout?: number): Promise<Socket>
   logout(): Promise<void>
   readonly isOpen: boolean
@@ -491,8 +514,9 @@ export type SocketOptions = {
   version?: [number, number, number]
   printQR?: boolean
   maxMediaBytes?: number
-  logger?: boolean | Partial<Record<'trace' | 'debug' | 'info' | 'warn' | 'error', (...args: any[]) => void>>
-  getMessage?: (key: MessageKey) => Promise<Record<string, any> | undefined> | Record<string, any> | undefined
+  maxFileBytes?: number
+  logger?: boolean | Partial<Record<'trace' | 'debug' | 'info' | 'warn' | 'error', (...args: unknown[]) => void>>
+  getMessage?: (key: MessageKey) => Promise<Record<string, unknown> | undefined> | Record<string, unknown> | undefined
   autoRejectCalls?: boolean
   markOnlineOnConnect?: boolean
   syncFullHistory?: boolean
@@ -508,47 +532,50 @@ export type SocketOptions = {
 
 export type Store = {
   loadMessage(jid: string, id: string): IncomingMessage | undefined
-  getMessage(key: MessageKey): Record<string, any> | undefined
+  getMessage(key: MessageKey): Record<string, unknown> | undefined
   getMessages(jid: string, limit?: number): IncomingMessage[]
-  getChat(jid: string): Record<string, any> | undefined
-  getChats(): Record<string, any>[]
-  getContact(jid: string): Record<string, any> | undefined
-  getContacts(): Record<string, any>[]
+  getChat(jid: string): Record<string, unknown> | undefined
+  getChats(): Record<string, unknown>[]
+  getContact(jid: string): Record<string, unknown> | undefined
+  getContacts(): Record<string, unknown>[]
   getGroup(jid: string): Partial<GroupMetadata> | undefined
   getGroups(): Partial<GroupMetadata>[]
-  getPresence(jid: string): Record<string, any> | undefined
-  toJSON(): Record<string, any>
-  fromJSON(data: Record<string, any>): Store
+  getPresence(jid: string): Record<string, unknown> | undefined
+  toJSON(): Record<string, unknown>
+  fromJSON(data: Record<string, unknown>): Store
   writeToFile(file: string): Promise<void>
   readFromFile(file: string): Store
   unbind(): void
 }
 
 export function makeSocket(options: SocketOptions): Promise<Socket>
-export function useFileAuthState(dir: string, options?: { debounceMs?: number }): AuthState
+export function useFileAuthState(dir: string, options?: SessionOptions): AuthState
 export function createStore(socket: Socket, options?: { maxMessagesPerChat?: number; maxChats?: number; maxContacts?: number }): Store
 export function makeInMemoryStore(options?: { maxMessagesPerChat?: number; maxChats?: number; maxContacts?: number }): Store & { bind(socket: Socket): Store }
 export function parseMessage(event: IncomingMessage, options?: { self?: string }): ParsedMessage
 export const proto: Record<string, any>
 export const content: {
-  buildMessage(input: MessageContent, options?: SendOptions): Record<string, any>
-  text(text: string, options?: SendOptions): Record<string, any>
-  buttons(options: SendOptions & { text: string; footer?: string; buttons: ButtonOption[] }): Record<string, any>
-  interactive(options: SendOptions & { text: string; title?: string; footer?: string; header?: Record<string, any>; messageParamsJson?: string; buttons: ButtonOption[] }): Record<string, any>
-  list(options: SendOptions & { text: string; title?: string; footer?: string; buttonText?: string; sections: ListSection[] }): Record<string, any>
-  poll(options: SendOptions & { text: string; options: string[]; selectableOptionsCount?: number }): Record<string, any>
-  location(options: SendOptions & { latitude: number; longitude: number; name?: string; address?: string }): Record<string, any>
-  contact(options: SendOptions & { displayName: string; vcard: string }): Record<string, any>
-  reaction(target: IncomingMessage | MessageKey, emoji?: string): Record<string, any>
-  contacts(options: SendOptions & { displayName?: string; contacts: { displayName: string; vcard: string }[] }): Record<string, any>
-  groupInvite(options: SendOptions & { groupJid: string; inviteCode: string; inviteExpiration?: number; groupName?: string; caption?: string }): Record<string, any>
-  deleteMessage(target: IncomingMessage | MessageKey): Record<string, any>
-  editMessage(target: IncomingMessage | MessageKey, text: string): Record<string, any>
-  forward(source: IncomingMessage | Record<string, any>, options?: SendOptions): Record<string, any>
+  buildMessage(input: MessageContent, options?: SendOptions): Record<string, unknown>
+  text(text: string, options?: SendOptions): Record<string, unknown>
+  buttons(options: SendOptions & { text: string; footer?: string; buttons: ButtonOption[] }): Record<string, unknown>
+  interactive(options: SendOptions & { text: string; title?: string; footer?: string; header?: Record<string, unknown>; messageParamsJson?: string; buttons: ButtonOption[] }): Record<string, unknown>
+  list(options: SendOptions & { text: string; title?: string; footer?: string; buttonText?: string; sections: ListSection[] }): Record<string, unknown>
+  poll(options: SendOptions & { text: string; options: string[]; selectableOptionsCount?: number }): Record<string, unknown>
+  location(options: SendOptions & { latitude: number; longitude: number; name?: string; address?: string }): Record<string, unknown>
+  contact(options: SendOptions & { displayName: string; vcard: string }): Record<string, unknown>
+  reaction(target: IncomingMessage | MessageKey, emoji?: string): Record<string, unknown>
+  contacts(options: SendOptions & { displayName?: string; contacts: { displayName: string; vcard: string }[] }): Record<string, unknown>
+  groupInvite(options: SendOptions & { groupJid: string; inviteCode: string; inviteExpiration?: number; groupName?: string; caption?: string }): Record<string, unknown>
+  deleteMessage(target: IncomingMessage | MessageKey): Record<string, unknown>
+  editMessage(target: IncomingMessage | MessageKey, text: string): Record<string, unknown>
+  forward(source: IncomingMessage | Record<string, unknown>, options?: SendOptions): Record<string, unknown>
   vcard(options: { name: string; number: string; organization?: string }): string
-  stickerPack(options: StickerPackOptions): Record<string, any>
-  extractText(input: IncomingMessage | Record<string, any>): string | undefined
-  unwrapMessage(message: Record<string, any>): Record<string, any>
+  stickerPack(options: StickerPackOptions): Record<string, unknown>
+  extractText(input: IncomingMessage | Record<string, unknown>): string | undefined
+  extractInteractiveId(input: IncomingMessage | Record<string, unknown>): unknown
+  REVOKE_TYPE: number
+  EDIT_TYPE: number
+  unwrapMessage(message: Record<string, unknown>): Record<string, unknown>
 }
 export function jidDecode(jid: string): { server: string; user: string; domainType: number; device?: number } | undefined
 export function jidEncode(user: string, server: string, device?: number): string
@@ -560,7 +587,7 @@ export function isJidUser(jid: string): boolean
 export function isJidLid(jid: string): boolean
 export function isJidPN(jid: string): boolean
 export function isJidGroup(jid: string): boolean
-export * from './client.d.ts'
+export * from './client.js'
 export type LauncherStatus =
   | { state: 'connecting'; registered: boolean; phoneNumber: string | null }
   | { state: 'pairing' }
@@ -584,11 +611,12 @@ export type LauncherEventMap = {
   signal: (signal: string) => void
   stopped: () => void
 }
-export type LauncherOptions = Omit<Record<string, any>, 'auth'> & {
+export type LauncherOptions = Omit<Partial<SocketOptions>, 'auth'> & {
   session?: string | SessionAdapter
+  sessionEncryptionKey?: SessionEncryptionKey
   phoneNumber?: string | number | (() => string | number | null | undefined | Promise<string | number | null | undefined>)
   setup?: (sock: Socket, launcher: Launcher) => void | (() => unknown) | { stop(): unknown } | Promise<void | (() => unknown) | { stop(): unknown }>
-  connector?: (options: Record<string, any>) => Promise<Socket>
+  connector?: (options: SocketOptions) => Promise<Socket>
   autoReset?: boolean
   maxRelaunches?: number
   relaunchWindowMs?: number
@@ -616,5 +644,11 @@ export function createLauncher(options?: LauncherOptions): Launcher
 export function start(options?: LauncherOptions): Promise<Launcher>
 export function parsePhoneNumber(value: unknown): string | null
 export function formatPairingCode(code: string): string
-export function promptPhone(question: string, options?: { input?: NodeJS.ReadableStream & { isTTY?: boolean }; output?: NodeJS.WritableStream; attempts?: number; invalid?: string }): Promise<string | null>
+export type PromptInput = {
+  readonly isTTY?: boolean
+  on(event: string, listener: (...args: never[]) => void): unknown
+}
+export type PromptOutput = { write(chunk: string): unknown }
+export function promptPhone(question: string, options?: { input?: PromptInput; output?: PromptOutput; attempts?: number; invalid?: string }): Promise<string | null>
 export function reasonName(reason: number): keyof typeof DisconnectReason | undefined
+export function sniffMimeType(buffer: ArrayLike<number> | null | undefined, fallback?: string): string | undefined

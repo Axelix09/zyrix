@@ -1,5 +1,5 @@
 import { Socket } from './socket.js'
-import { useFileAuthState } from './auth.js'
+import { useFileAuthState, MAX_MONGO_DOCUMENT_BYTES } from './auth.js'
 import { proto } from './proto.js'
 import { createStore, makeInMemoryStore } from './store.js'
 import { useAdapterAuthState, useMemoryAuthState, memoryAdapter, mongoAdapter } from './authstore.js'
@@ -19,14 +19,15 @@ const content = Object.freeze({ ...builders })
 
 const makeSocket = (options) => new Socket(options).start()
 
-const connect = async ({ session = 'session', auth, ...options } = {}) => {
-  const state = auth || (typeof session === 'string' ? useFileAuthState(session) : await useAdapterAuthState(session))
+const connect = async ({ session = 'session', auth, sessionEncryptionKey, ...options } = {}) => {
+  const authOptions = sessionEncryptionKey === undefined ? {} : { encryptionKey: sessionEncryptionKey }
+  const state = auth || (typeof session === 'string' ? useFileAuthState(session, authOptions) : await useAdapterAuthState(session, authOptions))
   return makeSocket({ ...options, auth: state })
 }
 
 export {
   start, createLauncher, Launcher, parsePhoneNumber, formatPairingCode, promptPhone, reasonName,
-  connect, makeSocket, Socket, useAdapterAuthState, useMemoryAuthState, memoryAdapter, mongoAdapter, ZyrixError, ErrorKind, isZyrixError, MessageContext, useFileAuthState, createStore, makeInMemoryStore, parseMessage, DisconnectReason, DEFAULT_MESSAGES, mergeMessages, proto, content,
+  connect, makeSocket, Socket, MAX_MONGO_DOCUMENT_BYTES, useAdapterAuthState, useMemoryAuthState, memoryAdapter, mongoAdapter, ZyrixError, ErrorKind, isZyrixError, MessageContext, useFileAuthState, createStore, makeInMemoryStore, parseMessage, DisconnectReason, DEFAULT_MESSAGES, mergeMessages, proto, content,
   jidDecode, jidEncode, normalizeJid, jidNormalizedUser, jidWithoutDevice, jidType, isJidUser, isJidLid, isJidPN, isJidGroup
 }
 

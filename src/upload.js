@@ -16,9 +16,17 @@ const postFile = (host, pathname, filePath, size, timeoutMs = 120000) =>
       },
       (res) => {
         const chunks = []
-        res.on('data', (chunk) => chunks.push(chunk))
+        let total = 0
+        res.on('data', (chunk) => {
+          total += chunk.length
+          if (total > 64 * 1024) {
+            res.destroy(new Error('respuesta de subida de media demasiado grande'))
+            return
+          }
+          chunks.push(chunk)
+        })
         res.on('error', reject)
-        res.on('end', () => resolve({ status: res.statusCode, body: Buffer.concat(chunks).toString('utf8') }))
+        res.on('end', () => resolve({ status: res.statusCode, body: Buffer.concat(chunks, total).toString('utf8') }))
       }
     )
     req.on('error', reject)

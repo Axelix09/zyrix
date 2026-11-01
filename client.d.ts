@@ -1,10 +1,58 @@
-export const clientProfiles: { ubuntu: () => [string, string, string] }
-export const fetchProtocolVersion: () => Promise<{ version: [number, number, number] }>
-export function useZyrixAuth(directory: string): Promise<{ state: AuthState['state']; saveCreds: AuthState['save']; auth: AuthState }>
-export function createClient(options?: Record<string, any>): Socket
+import type {
+  AuthState,
+  IncomingMessage,
+  MessageContent,
+  SendOptions,
+  SendResult,
+  Socket,
+  SocketOptions,
+} from './index.js'
+
+export type ClientMessageOptions = SendOptions & {
+  userJid?: string
+}
+
+export type CreateClientOptions = Partial<Omit<SocketOptions, 'auth'>> & {
+  auth?: AuthState | AuthState['state']
+  printQRInTerminal?: boolean
+}
+
+export type ClientSocket = Socket & {
+  sendPrepared(
+    jid: string,
+    message: Record<string, unknown>,
+    options?: ClientMessageOptions,
+  ): Promise<SendResult>
+}
+
+export const clientProfiles: {
+  ubuntu(browser?: string): [string, string, string]
+}
+export function fetchProtocolVersion(): Promise<{ version: [number, number, number] }>
+export function useZyrixAuth(directory: string): Promise<{
+  state: AuthState['state']
+  saveCreds: AuthState['save']
+  auth: AuthState
+}>
+export function createClient(options?: CreateClientOptions): ClientSocket
 export function createMessageId(): string
-export function createMessageEnvelope(jid: string, message: Record<string, any>, options?: Record<string, any>): IncomingMessage
-export function createMessage(jid: string, content: MessageContent, options?: Record<string, any>): Promise<IncomingMessage>
-export function createMessageContent(content: MessageContent, options?: Record<string, any>): Promise<Record<string, any>>
-export function readMediaStream(sock: Socket, message: Record<string, any>, mediaType?: string): Promise<AsyncIterable<Uint8Array>>
-export function attachMessageDelivery(sock: Socket): Socket
+export function createMessageEnvelope(
+  jid: string,
+  message: Record<string, unknown>,
+  options?: ClientMessageOptions,
+): IncomingMessage
+export function createMessage(
+  jid: string,
+  content: MessageContent,
+  options?: ClientMessageOptions,
+): Promise<IncomingMessage>
+export function createMessageContent(
+  content: MessageContent,
+  options?: SendOptions,
+): Promise<Record<string, unknown>>
+export function readMediaStream(
+  sock: Socket,
+  message: Record<string, unknown>,
+  mediaType?: string,
+): Promise<AsyncIterable<Uint8Array>>
+export function attachMessageDelivery(sock: Socket): ClientSocket

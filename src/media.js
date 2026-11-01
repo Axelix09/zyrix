@@ -2,8 +2,10 @@ import fs from 'fs'
 import os from 'os'
 import path from 'path'
 import { randomUUID } from 'crypto'
+import { Readable } from 'node:stream'
+import { pipeline } from 'node:stream/promises'
 import { getChild, getChildren } from './binary.js'
-import { encryptMedia, encryptMediaFile, decryptMedia } from './mediacrypto.js'
+import { encryptMedia, encryptMediaFile, decryptMedia, decryptMediaToFile } from './mediacrypto.js'
 import { postFile } from './upload.js'
 import { S_WHATSAPP_NET as S } from './util.js'
 import { buildMessage, stickerPack, unwrapMessage } from './content.js'
@@ -63,6 +65,32 @@ const mediaUrl = (message) => {
 }
 
 const b64url = (buf) => encodeURIComponent(buf.toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, ''))
+const readUploadJson = async (res) => JSON.parse((await readResponse(res, 64 * 1024)).toString('utf8'))
+
+const stageMediaStream = async (input, limit) => {
+  const source = input?.stream
+  if (!source || typeof source[Symbol.asyncIterator] !== 'function') throw new TypeError('stream debe ser AsyncIterable de bytes')
+  const dir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'zyrix-media-'))
+  await fs.promises.chmod(dir, 0o700)
+  const filePath = path.join(dir, 'input.bin')
+  let size = 0
+  const bounded = async function* () {
+    for await (const chunk of source) {
+      if (!Buffer.isBuffer(chunk) && !(chunk instanceof Uint8Array)) throw new TypeError('el stream de media solo puede emitir bytes')
+      const buffer = Buffer.from(chunk)
+      size += buffer.length
+      if (size > limit) throw new RangeError(`el media supera el límite de ${limit} bytes`)
+      yield buffer
+    }
+  }
+  try {
+    await pipeline(Readable.from(bounded()), fs.createWriteStream(filePath, { flags: 'wx', mode: 0o600 }))
+    return { dir, filePath, size }
+  } catch (error) {
+    await fs.promises.rm(dir, { recursive: true, force: true }).catch(() => {})
+    throw error
+  }
+}
 
 export default {
   sendImage(to, image, options = {}) { return this.sendMedia(to, { ...options, image }) },
@@ -146,14 +174,15 @@ export default {
         const res = await fetch(`https://${host}${PATH[type]}/${token}?auth=${conn.auth}&token=${token}`, {
           method: 'POST',
           body: enc.body,
-          headers: { 'Content-Type': 'application/octet-stream', Origin: 'https://web.whatsapp.com' }
+          headers: { 'Content-Type': 'application/octet-stream', Origin: 'https://web.whatsapp.com' },
+          signal: AbortSignal.timeout(30_000)
         })
         if (!res.ok) {
           if (res.status === 401 || res.status === 403) this.mediaConnCache = null
           lastError = new Error(`el host ${host} respondió ${res.status}`)
           continue
         }
-        const json = await res.json()
+        const json = await readUploadJson(res)
         if (json.url) return { ...enc, url: json.url, directPath: json.direct_path }
       } catch (e) {
         lastError = e
@@ -206,14 +235,15 @@ export default {
         const res = await fetch(`https://${host}${PATH[mediaType]}/${token}?auth=${conn.auth}&token=${token}`, {
           method: 'POST',
           body,
-          headers: { 'Content-Type': 'application/octet-stream', Origin: 'https://web.whatsapp.com' }
+          headers: { 'Content-Type': 'application/octet-stream', Origin: 'https://web.whatsapp.com' },
+          signal: AbortSignal.timeout(30_000)
         })
         if (!res.ok) {
           if (res.status === 401 || res.status === 403) this.mediaConnCache = null
           lastError = new Error(`el host ${host} respondió ${res.status}`)
           continue
         }
-        const json = await res.json()
+        const json = await readUploadJson(res)
         if (json.url || json.direct_path) return { url: json.url, directPath: json.direct_path }
       } catch (e) {
         lastError = e
@@ -225,33 +255,43 @@ export default {
   async sendMedia(to, opts) {
     const type = TYPES.find((t) => opts[t])
     if (!type) throw new Error('falta image, video, audio, document o sticker')
-    const localFile = localMediaPath(opts[type])
-    const data = localFile ? await readHead(localFile) : await toBuffer(opts[type], this.maxMediaBytes)
-    const up = localFile ? await this.uploadMediaFile(localFile, type) : await this.uploadMedia(data, type)
-    const defaultMime = type === 'audio' && opts.ptt ? 'audio/ogg; codecs=opus' : MIME[type]
-    const body = {
-      url: up.url,
-      directPath: up.directPath,
-      mediaKey: up.mediaKey,
-      mimetype: opts.mimetype || sniffMimeType(data, defaultMime) || defaultMime,
-      fileEncSha256: up.fileEncSha256,
-      fileSha256: up.fileSha256,
-      fileLength: up.fileLength,
-      mediaKeyTimestamp: Math.floor(Date.now() / 1000)
+    let localFile = localMediaPath(opts[type])
+    let staged
+    try {
+      const source = opts[type]
+      if (!localFile && source && typeof source === 'object' && source.stream) {
+        staged = await stageMediaStream(source, this.maxFileBytes)
+        localFile = staged.filePath
+      }
+      const data = localFile ? await readHead(localFile) : await toBuffer(opts[type], this.maxMediaBytes)
+      const up = localFile ? await this.uploadMediaFile(localFile, type) : await this.uploadMedia(data, type)
+      const defaultMime = type === 'audio' && opts.ptt ? 'audio/ogg; codecs=opus' : MIME[type]
+      const body = {
+        url: up.url,
+        directPath: up.directPath,
+        mediaKey: up.mediaKey,
+        mimetype: opts.mimetype || sniffMimeType(data, defaultMime) || defaultMime,
+        fileEncSha256: up.fileEncSha256,
+        fileSha256: up.fileSha256,
+        fileLength: up.fileLength,
+        mediaKeyTimestamp: Math.floor(Date.now() / 1000)
+      }
+      if (opts.caption && (type === 'image' || type === 'video' || type === 'document')) body.caption = opts.caption
+      if (opts.thumbnail && type !== 'audio') body.jpegThumbnail = Buffer.from(opts.thumbnail)
+      if (Number.isInteger(opts.width)) body.width = opts.width
+      if (Number.isInteger(opts.height)) body.height = opts.height
+      if (Number.isInteger(opts.seconds) && (type === 'audio' || type === 'video')) body.seconds = opts.seconds
+      if (type === 'audio' && opts.waveform) body.waveform = Buffer.from(opts.waveform)
+      if (type === 'video' && (opts.gif || opts.gifPlayback)) body.gifPlayback = true
+      if (type === 'audio' && opts.ptt) body.ptt = true
+      if (type === 'document') body.fileName = opts.fileName || 'archivo'
+      const mediaType = type === 'video' && (opts.gif || opts.gifPlayback) ? 'gif' : type === 'audio' && opts.ptt ? 'ptt' : type
+      const chat = normalizeJid(to, S)
+      const message = buildMessage({ [`${type}Message`]: body }, opts)
+      return await this.deliver(chat, message, { mediaType, id: opts.messageId, waitAck: opts.waitAck })
+    } finally {
+      if (staged) await fs.promises.rm(staged.dir, { recursive: true, force: true }).catch(() => {})
     }
-    if (opts.caption && (type === 'image' || type === 'video' || type === 'document')) body.caption = opts.caption
-    if (opts.thumbnail && type !== 'audio') body.jpegThumbnail = Buffer.from(opts.thumbnail)
-    if (Number.isInteger(opts.width)) body.width = opts.width
-    if (Number.isInteger(opts.height)) body.height = opts.height
-    if (Number.isInteger(opts.seconds) && (type === 'audio' || type === 'video')) body.seconds = opts.seconds
-    if (type === 'audio' && opts.waveform) body.waveform = Buffer.from(opts.waveform)
-    if (type === 'video' && (opts.gif || opts.gifPlayback)) body.gifPlayback = true
-    if (type === 'audio' && opts.ptt) body.ptt = true
-    if (type === 'document') body.fileName = opts.fileName || 'archivo'
-    const mediaType = type === 'video' && (opts.gif || opts.gifPlayback) ? 'gif' : type === 'audio' && opts.ptt ? 'ptt' : type
-    const chat = normalizeJid(to, S)
-    const message = buildMessage({ [`${type}Message`]: body }, opts)
-    return this.deliver(chat, message, { mediaType, id: opts.messageId, waitAck: opts.waitAck })
   },
 
   async downloadMedia(input, mediaType) {
@@ -262,8 +302,32 @@ export default {
     if (!type) throw new Error('el mensaje no tiene media')
     const m = message.stickerPackMessage || message[`${type}Message`] || message
     const url = mediaUrl(m)
-    const res = await fetch(url, { headers: { Origin: 'https://web.whatsapp.com' } })
+    const res = await fetch(url, { headers: { Origin: 'https://web.whatsapp.com' }, signal: AbortSignal.timeout(30_000) })
     if (!res.ok) throw new Error('descarga fallida ' + res.status)
     return decryptMedia(await readResponse(res, this.maxMediaBytes + 26), m.mediaKey, type)
+  },
+
+  async downloadMediaToFile(input, outputPath, options = {}) {
+    const message = unwrapMessage(input && input.message ? input.message : input) || {}
+    const type = message.stickerPackMessage
+      ? 'sticker'
+      : TYPES.find((t) => message[`${t}Message`]) || (options.mediaType && TYPES.includes(options.mediaType) && (message.mediaKey || message.directPath || message.url) ? options.mediaType : undefined)
+    if (!type) throw new Error('el mensaje no tiene media')
+    const m = message.stickerPackMessage || message[`${type}Message`] || message
+    const url = mediaUrl(m)
+    const maxBytes = options.maxBytes ?? this.maxFileBytes
+    const timeout = options.timeout ?? 120_000
+    if (!Number.isSafeInteger(maxBytes) || maxBytes < 1 || maxBytes > this.maxFileBytes) throw new RangeError(`maxBytes debe estar entre 1 y maxFileBytes (${this.maxFileBytes})`)
+    if (!Number.isSafeInteger(timeout) || timeout < 1) throw new RangeError('timeout debe ser un entero positivo en milisegundos')
+    const res = await fetch(url, { headers: { Origin: 'https://web.whatsapp.com' }, signal: AbortSignal.timeout(timeout) })
+    if (!res.ok) throw new Error('descarga fallida ' + res.status)
+    if (!res.body) throw new Error('la respuesta no contiene media')
+    const declared = Number(res.headers.get('content-length'))
+    const encryptedLimit = Math.ceil(maxBytes / 16) * 16 + 26
+    if (Number.isFinite(declared) && declared > encryptedLimit) {
+      await res.body.cancel()
+      throw new RangeError(`el media supera el límite de ${maxBytes} bytes`)
+    }
+    return decryptMediaToFile(res.body, outputPath, m.mediaKey, type, { maxBytes })
   }
 }

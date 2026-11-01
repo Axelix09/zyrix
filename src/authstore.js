@@ -1,7 +1,8 @@
 import crypto from 'crypto'
 import { initCreds, initKeys } from './auth.js'
-import { jsonReplacer, jsonReviver } from './util.js'
+import { parseAuthSnapshot, serializeAuthSnapshot, validateSessionEncryptionKey } from './auth-snapshot.js'
 import { ZyrixError, ErrorKind } from './errors.js'
+import { MAX_MONGO_DOCUMENT_BYTES } from './auth.js'
 
 const memoryAdapter = (initial = null) => {
   let data = initial
@@ -23,14 +24,22 @@ const mongoAdapter = (collection, id = 'zyrix-session') => {
       return doc ? doc.data : null
     },
     async write(data) {
-      await collection.updateOne({ _id: id }, { $set: { data, updatedAt: new Date() } }, { upsert: true })
+      if (typeof data !== 'string') throw new TypeError('mongoAdapter requiere un snapshot serializado como string')
+      const byteLength = Buffer.byteLength(data, 'utf8')
+      if (byteLength > MAX_MONGO_DOCUMENT_BYTES) {
+        const err = new Error(`El estado de sesión supera el límite BSON seguro de 16 MB (${(byteLength / (1024 * 1024)).toFixed(2)} MB).`)
+        err.code = 'SESSION_TOO_LARGE'
+        throw err
+      }
+      await collection.updateOne({ _id: id }, { $set: { data, updatedAt: new Date(), byteLength } }, { upsert: true })
     }
   }
 }
 
 const isPlainObject = (value) => Boolean(value) && typeof value === 'object' && !Array.isArray(value)
 
-const useAdapterAuthState = async (adapter, { debounceMs = 300 } = {}) => {
+const useAdapterAuthState = async (adapter, { debounceMs = 300, encryptionKey: suppliedKey } = {}) => {
+  const encryptionKey = validateSessionEncryptionKey(suppliedKey)
   if (!adapter || typeof adapter.read !== 'function' || typeof adapter.write !== 'function') {
     throw new TypeError('adapter debe tener read() y write(data)')
   }
@@ -38,7 +47,7 @@ const useAdapterAuthState = async (adapter, { debounceMs = 300 } = {}) => {
   let snapshot = null
   if (raw) {
     try {
-      snapshot = JSON.parse(typeof raw === 'string' ? raw : JSON.stringify(raw), jsonReviver)
+      snapshot = parseAuthSnapshot(typeof raw === 'string' ? raw : JSON.stringify(raw), encryptionKey)
     } catch (cause) {
       throw new ZyrixError(`No se pudo leer la sesión del adaptador: ${cause.message}`, { kind: ErrorKind.AUTH, cause })
     }
@@ -58,7 +67,7 @@ const useAdapterAuthState = async (adapter, { debounceMs = 300 } = {}) => {
     keys: Object.fromEntries(Object.keys(defaults).map((key) => [key, Object.assign(defaults[key], savedKeys[key] || {})]))
   }
 
-  const serialize = () => JSON.stringify({ version: 1, creds: state.creds, keys: state.keys }, jsonReplacer)
+  const serialize = () => serializeAuthSnapshot({ creds: state.creds, keys: state.keys }, encryptionKey)
   const auth = { state, save: null, flush: null, onSaveError: null }
   let timer = null
   let dirty = false
@@ -70,10 +79,10 @@ const useAdapterAuthState = async (adapter, { debounceMs = 300 } = {}) => {
     if (dirty) {
       dirty = false
       const data = serialize()
-      chain = chain.then(() => adapter.write(data)).catch((err) => {
+      chain = chain.catch(() => {}).then(() => adapter.write(data)).catch((err) => {
         dirty = true
         if (typeof auth.onSaveError === 'function') auth.onSaveError(err)
-        else throw err
+        throw err
       })
     }
     return chain
