@@ -1,6 +1,6 @@
 # Zyrix
 
-Zyrix es una biblioteca de Node.js para hacer bots y automatizaciones sobre WhatsApp Web. La hice yo Axelix09 desde cero, con Baileys como referencia pero sin copiarlo directamente. La idea es que un bot completo se escriba con pocas líneas, que un error en tus handlers no tire el proceso y que puedas usar la API con tus propios nombres, en español si quieres.
+Zyrix es una biblioteca de Node.js para hacer bots y automatizaciones sobre WhatsApp. Tomando de referencia a Baileys, pero hecha desde cero. La idea es que un bot completo se escriba con pocas líneas, que un error en tus handlers no tire el proceso y que puedas usar la API con tus propios nombres, en español si quieres.
 
 El protocolo de WhatsApp Web cambia sin avisar y Zyrix no tiene relación con WhatsApp ni con Meta. El autor ya probó Zyrix manualmente con WhatsApp real; las pruebas automatizadas no se conectan al servicio ni cubren todas las cuentas o funciones, así que los cambios de protocolo igual requieren volver a validar. Úsalo solo con cuentas y dispositivos que sean tuyos o que tengas autorizados.
 
