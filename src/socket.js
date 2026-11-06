@@ -1,5 +1,8 @@
 import { EventEmitter } from 'events'
 import crypto from 'crypto'
+import os from 'os'
+import path from 'path'
+import fsp from 'fs/promises'
 import qrcode from 'qrcode-terminal'
 import { proto } from './proto.js'
 import { Transport } from './transport.js'
@@ -20,14 +23,56 @@ import { defineNamespaces } from './namespaces.js'
 import { ZyrixError, ErrorKind } from './errors.js'
 
 const FALLBACK_VERSION = [2, 3000, 1043857760]
+const VERSION_CACHE_TTL = 7 * 24 * 60 * 60 * 1000
+const versionCachePath = path.join(os.tmpdir(), 'zyrix-client-revision.json')
 
 const fetchVersion = async () => {
   try {
     const res = await fetch('https://web.whatsapp.com/sw.js', { headers: { 'User-Agent': 'Mozilla/5.0' }, signal: AbortSignal.timeout(8000) })
     const m = (await res.text()).match(/\\?"client_revision\\?":\s*(\d+)/)
-    if (m) return [2, 3000, +m[1]]
+    if (m) {
+      const version = [2, 3000, +m[1]]
+      writeVersionCache(version)
+      return version
+    }
   } catch {}
   return FALLBACK_VERSION
+}
+
+const writeVersionCache = async (version) => {
+  try {
+    await fsp.writeFile(versionCachePath, JSON.stringify({ version, fetchedAt: Date.now() }), { mode: 0o600 })
+  } catch {}
+}
+
+const readVersionCache = async () => {
+  try {
+    const cached = JSON.parse(await fsp.readFile(versionCachePath, 'utf8'))
+    if (Array.isArray(cached.version) && cached.version.length === 3 && cached.version.every((n) => Number.isInteger(n) && n > 0) && Number.isFinite(cached.fetchedAt)) {
+      return cached
+    }
+  } catch {}
+  return null
+}
+
+const resolveVersion = async ({ backgroundRefresh = true } = {}) => {
+  const cached = await readVersionCache()
+  if (cached) {
+    const age = Date.now() - cached.fetchedAt
+    if (age < VERSION_CACHE_TTL) {
+      if (backgroundRefresh) fetchVersion().catch(() => {})
+      return cached.version
+    }
+    try {
+      const fresh = await fetchVersion()
+      if (fresh !== FALLBACK_VERSION) return fresh
+      writeVersionCache(cached.version)
+      return cached.version
+    } catch {
+      return cached.version
+    }
+  }
+  return fetchVersion()
 }
 
 const ackAttrs = (node) => {
@@ -153,7 +198,7 @@ class Socket extends EventEmitter {
   async start() {
     if (this.started) return this
     this.started = true
-    if (!this.version) this.version = await fetchVersion()
+    if (!this.version) this.version = await resolveVersion()
     if (this.closing) return this
     this.connect()
     return this
@@ -264,7 +309,7 @@ class Socket extends EventEmitter {
       historySyncConfig: {
         storageQuotaMb: 10240,
         inlineInitialPayloadInE2EeMsg: true,
-        supportCallLogHistory: false,
+        supportCallLogHistorySync: false,
         supportBotUserAgentChatHistory: true,
         supportCagReactionsAndPolls: true,
         supportBizHostedMsg: true,
@@ -718,4 +763,4 @@ class Socket extends EventEmitter {
 Object.assign(Socket.prototype, messages, media, business, appstate, pairing, features, socketMethods, socketMixin)
 defineNamespaces(Socket.prototype)
 
-export { Socket, fetchVersion }
+export { Socket, fetchVersion, resolveVersion }
