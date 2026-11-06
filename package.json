@@ -1,6 +1,6 @@
 {
   "name": "@axel-dev09/zyrix",
-  "version": "0.16.0",
+  "version": "0.17.0",
   "description": "Biblioteca de WhatsApp Web para Node.js con API por espacios, sesiones cifrables y kit de comandos",
   "author": "Axelix09",
   "license": "GPL-3.0-only",
@@ -47,7 +47,6 @@
     "LICENSE",
     "THIRD_PARTY_NOTICES.md",
     "THIRD_PARTY_LICENSES",
-    "CHANGELOG.md",
     "tests",
     "scripts/check-test-discovery.mjs",
     "type-tests"
