@@ -1,12 +1,12 @@
-import { proto } from './proto.js'
-import { Curve } from './crypto.js'
-import { getChild, getChildren, jidDecode, jidEncode, isJidGroup } from './binary.js'
-import * as signal from './signal.js'
-import * as senderkey from './senderkey.js'
-import { S_WHATSAPP_NET as S, be, genId, pad, unpad, encodeAccount } from './util.js'
-import { buildMessage, REVOKE_TYPE, EDIT_TYPE } from './content.js'
-import { ZyrixError, ErrorKind } from './errors.js'
-import { normalizeJid, jidNormalizedUser, isJidLid, isJidPN, sameUser as sameIdentity, makeIdentityMap } from './jid.js'
+import { proto } from '../proto.js'
+import { Curve } from '../crypto.js'
+import { getChild, getChildren, jidDecode, jidEncode, isJidGroup } from '../binary.js'
+import * as signal from '../signal.js'
+import * as senderkey from '../senderkey.js'
+import { S_WHATSAPP_NET as S, be, genId, pad, unpad, encodeAccount } from '../util.js'
+import { buildMessage, REVOKE_TYPE, EDIT_TYPE } from '../content.js'
+import { ZyrixError, ErrorKind } from '../errors.js'
+import { normalizeJid, jidNormalizedUser, isJidLid, isJidPN, sameUser as sameIdentity, makeIdentityMap } from '../jid.js'
 
 const MEDIA_KEYS = ['imageMessage', 'videoMessage', 'audioMessage', 'documentMessage', 'stickerMessage']
 const SKIP = new Set(['senderKeyDistributionMessage', 'messageContextInfo', 'deviceSentMessage'])
