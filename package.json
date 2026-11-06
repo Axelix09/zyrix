@@ -72,7 +72,8 @@
   "scripts": {
     "test": "node scripts/check-test-discovery.mjs && node --test",
     "test:run": "node --test",
-    "typecheck": "tsc --noEmit --strict --module NodeNext --moduleResolution NodeNext --target ES2022 --lib ES2022,DOM --skipLibCheck false type-tests/types-smoke.ts index.d.ts client.d.ts kit.d.ts"
+    "typecheck": "tsc --noEmit --strict --module NodeNext --moduleResolution NodeNext --target ES2022 --lib ES2022,DOM --skipLibCheck false type-tests/types-smoke.ts index.d.ts client.d.ts kit.d.ts",
+    "types:generate": "tsc -p tsconfig.types.json"
   },
   "dependencies": {
     "@wppconnect/wa-proto": "2.3000.1049217119",

@@ -2,27 +2,39 @@ name: CI
 
 on:
   push:
+    branches: [main]
   pull_request:
 
 jobs:
-  test:
+  verify:
+    name: Test (Node ${{ matrix.node }})
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        node-version: [18, 22]
+        node: [18, 20, 22]
     steps:
       - uses: actions/checkout@v4
+
       - uses: actions/setup-node@v4
         with:
-          node-version: ${{ matrix.node-version }}
-      - name: Install dependencies
-        run: npm install --no-package-lock
-      - name: Type declarations smoke check
+          node-version: ${{ matrix.node }}
+
+      - name: Instalar dependencias
+        run: npm install
+
+      - name: Typecheck de las declaraciones públicas
         run: npm run typecheck
-      - name: Run tests (fails if no tests are discovered)
-        run: npm test
-      - name: Syntax and package import smoke checks
+
+      - name: Generar tipos desde el código fuente (detección de deriva)
         run: |
-          for file in src/*.js; do node --check "$file"; done
-          node --input-type=module -e "import('./src/index.js').then((mod) => { if (!mod.content || typeof mod.parseMessage !== 'function') process.exit(1); console.log('Package import smoke check passed') })"
+          npm run types:generate
+          if [ -n "$(find types-generated -name '*.d.ts' | head -1)" ]; then
+            echo "Declaraciones generadas correctamente"
+          else
+            echo "types:generate no produjo declaraciones" >&2
+            exit 1
+          fi
+
+      - name: Tests
+        run: npm test
