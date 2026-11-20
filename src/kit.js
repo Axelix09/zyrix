@@ -373,9 +373,8 @@ class Bot extends EventEmitter {
     const abs = path.resolve(dir)
     if (this.watchers.has(abs)) return this
     const timers = new Map()
-    const watcher = fs.watch(abs, { recursive }, (_, name) => {
-      if (!name || !isPluginFile(name)) return
-      const file = path.join(abs, name)
+    const watchers = []
+    const schedule = (file) => {
       clearTimeout(timers.get(file))
       const timer = setTimeout(() => {
         timers.delete(file)
@@ -384,9 +383,35 @@ class Bot extends EventEmitter {
       }, 150)
       if (typeof timer.unref === 'function') timer.unref()
       timers.set(file, timer)
-    })
-    watcher.on('error', (error) => this.emit('plugin.error', { file: abs, error }))
-    this.watchers.set(abs, watcher)
+    }
+    const attach = (target) => {
+      const watcher = fs.watch(target, (_, name) => {
+        if (!name || !isPluginFile(name)) return
+        schedule(path.resolve(target, name))
+      })
+      watcher.on('error', (error) => this.emit('plugin.error', { file: target, error }))
+      watchers.push(watcher)
+    }
+    attach(abs)
+    if (recursive) {
+      const pending = [abs]
+      while (pending.length) {
+        const current = pending.shift()
+        let entries
+        try {
+          entries = fs.readdirSync(current, { withFileTypes: true })
+        } catch {
+          continue
+        }
+        for (const entry of entries) {
+          if (!entry.isDirectory() || entry.name.startsWith('.') || entry.name === 'node_modules') continue
+          const full = path.join(current, entry.name)
+          attach(full)
+          pending.push(full)
+        }
+      }
+    }
+    this.watchers.set(abs, { close() { for (const watcher of watchers) watcher.close() } })
     return this
   }
 

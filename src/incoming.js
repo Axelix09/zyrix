@@ -63,7 +63,7 @@ const parseMessage = (event, { self } = {}) => {
         remoteJidAlt: key.remoteJidAlt,
         participant: context.participant,
         participantAlt: context.participantAlt,
-        fromMe: false
+        fromMe: Boolean(self && context.participant && safeNormalize(context.participant) === safeNormalize(self))
       },
       message: context.quotedMessage,
       sender: safeNormalize(context.participant || (isGroup ? undefined : key.remoteJid))

@@ -24,7 +24,9 @@ import { ZyrixError, ErrorKind } from './errors.js'
 
 const FALLBACK_VERSION = [2, 3000, 1043857760]
 const VERSION_CACHE_TTL = 7 * 24 * 60 * 60 * 1000
-const versionCachePath = path.join(os.tmpdir(), 'zyrix-client-revision.json')
+const versionCacheOwner = typeof process.getuid === 'function' ? process.getuid() : null
+const versionCacheDir = path.join(os.tmpdir(), `zyrix-${versionCacheOwner ?? 'user'}`)
+const versionCachePath = path.join(versionCacheDir, 'client-revision.json')
 
 const fetchVersion = async () => {
   try {
@@ -41,12 +43,18 @@ const fetchVersion = async () => {
 
 const writeVersionCache = async (version) => {
   try {
-    await fsp.writeFile(versionCachePath, JSON.stringify({ version, fetchedAt: Date.now() }), { mode: 0o600 })
+    await fsp.mkdir(versionCacheDir, { recursive: true, mode: 0o700 })
+    const info = await fsp.lstat(versionCachePath).catch(() => null)
+    if (info && (info.isSymbolicLink() || !info.isFile())) return
+    await fsp.writeFile(versionCachePath, JSON.stringify({ version, fetchedAt: Date.now() }), { mode: 0o600, flag: 'w' })
   } catch {}
 }
 
 const readVersionCache = async () => {
   try {
+    const info = await fsp.lstat(versionCachePath)
+    if (!info.isFile() || info.isSymbolicLink()) return null
+    if (versionCacheOwner !== null && info.uid !== versionCacheOwner) return null
     const cached = JSON.parse(await fsp.readFile(versionCachePath, 'utf8'))
     if (Array.isArray(cached.version) && cached.version.length === 3 && cached.version.every((n) => Number.isInteger(n) && n > 0) && Number.isFinite(cached.fetchedAt)) {
       return cached
