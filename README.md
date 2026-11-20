@@ -1,64 +1,76 @@
 # Zyrix
 
-Zyrix es una biblioteca de Node.js para hacer bots y automatizaciones sobre WhatsApp. Tomando de referencia a Baileys, pero hecha desde cero. La idea es que un bot completo se escriba con pocas líneas, que un error en tus handlers no tire el proceso y que puedas usar la API con tus propios nombres, en español si quieres.
+**English** · [Español](./README.es.md)
 
-El protocolo de WhatsApp Web cambia sin avisar y Zyrix no tiene relación con WhatsApp ni con Meta. El autor ya probó Zyrix manualmente con WhatsApp real; las pruebas automatizadas no se conectan al servicio ni cubren todas las cuentas o funciones, así que los cambios de protocolo igual requieren volver a validar. Úsalo solo con cuentas y dispositivos que sean tuyos o que tengas autorizados.
+Zyrix is a Node.js library for WhatsApp bots and automation. It implements the WhatsApp Web multi-device protocol directly over a WebSocket — no browser, no Selenium, no Chromium, no page automation. A complete bot should fit in a few lines, a throwing handler must not take down your process, and the API should answer to your own names, in whatever language you prefer.
 
-## Contenido
+WhatsApp Web's protocol changes without notice, and Zyrix is not affiliated with WhatsApp or Meta. The author has tested Zyrix manually against a real WhatsApp account; the automated suite does not connect to the service and does not cover every account or feature, so protocol changes still need re-validation. Use it only with accounts and devices you own or are authorised to use.
 
-- [Instalación](#instalación)
-- [Inicio rápido](#inicio-rápido)
-- [Hacer un bot con el kit de comandos](#hacer-un-bot-con-el-kit-de-comandos)
-- [Recibir mensajes y eventos](#recibir-mensajes-y-eventos)
-- [Enviar mensajes](#enviar-mensajes)
-- [JID, PN y LID](#jid-pn-y-lid)
-- [Grupos, perfil, privacidad y más](#grupos-perfil-privacidad-y-más)
-- [Sesiones y store](#sesiones-y-store)
-- [Conexión y reconexión](#conexión-y-reconexión)
-- [Errores](#errores)
-- [Seguridad](#seguridad)
-- [Business, canales y comunidades](#business-canales-y-comunidades)
-- [Usarlo desde otros lenguajes](#usarlo-desde-otros-lenguajes)
-- [Lo que todavía no hace](#lo-que-todavía-no-hace)
-- [Validación con WhatsApp real](#validación-con-whatsapp-real)
-- [Desarrollo, licencia y avisos](#desarrollo-licencia-y-avisos)
+## Why Zyrix
 
-## Instalación
+- **Sessions are encrypted at rest.** AES-256-GCM with a scrypt-derived key, atomic writes, `0600` permissions, a backup copy and symlink rejection. Opt-in, and documented as such: the key lives outside the session folder.
+- **The connection lifecycle is solved, not delegated.** The launcher handles relaunches, session resets, a deleted session folder, pairing codes and OS signals, and reports every failure as an event you can act on.
+- **A bot runtime ships with it.** Commands, middleware, cooldowns, permissions and hot-reloaded plugins live in `@axel-dev09/zyrix/kit`, so the core stays protocol-only and your bot does not need a framework on top.
+- **Failures are typed.** `ZyrixError` carries `kind`, `code` and `retryable`; sends wait for the server ack and say `unconfirmed` instead of pretending; undeliverable devices are reported through `send.warning`.
+- **The gaps are written down.** [What it still doesn't do](#what-it-still-doesnt-do) and [Roadmap](#roadmap) list the missing pieces, so you can decide with the whole picture.
 
-Necesitas Node.js 18.17 o más nuevo. El paquete es ESM (`"type": "module"`), así que se importa con `import`, no con `require`.
+## Contents
+
+- [Installation](#installation)
+- [Quick start](#quick-start)
+- [Building a bot with the command kit](#building-a-bot-with-the-command-kit)
+- [Receiving messages and events](#receiving-messages-and-events)
+- [Sending messages](#sending-messages)
+- [JID, PN and LID](#jid-pn-and-lid)
+- [Groups, profile, privacy and more](#groups-profile-privacy-and-more)
+- [Sessions and store](#sessions-and-store)
+- [Connection and reconnection](#connection-and-reconnection)
+- [Errors](#errors)
+- [Security](#security)
+- [Business, channels and communities](#business-channels-and-communities)
+- [Using it from other languages](#using-it-from-other-languages)
+- [What it still doesn't do](#what-it-still-doesnt-do)
+- [How Zyrix compares to Baileys](#how-zyrix-compares-to-baileys)
+- [Roadmap](#roadmap)
+- [Real WhatsApp validation](#real-whatsapp-validation)
+- [Development, licence and notices](#development-licence-and-notices)
+
+## Installation
+
+You need Node.js 18.17 or newer. The package is ESM (`"type": "module"`), so it is imported with `import`, not `require`.
 
 ```bash
 npm install @axel-dev09/zyrix
 ```
 
-También puedes instalarlo directo desde GitHub:
+You can also install it straight from GitHub:
 
 ```bash
 npm install github:Axelix09/zyrix
 ```
 
-Todos los exports son nombrados:
+All exports are named:
 
 ```js
 import { start, connect, makeSocket, useFileAuthState, createStore, parseMessage, DisconnectReason, content, jidDecode } from '@axel-dev09/zyrix'
 ```
 
-Zyrix no trae un bot hecho. Tu proceso importa el módulo, configura la autenticación, registra los listeners y llama a lo que necesite. Los tipos de TypeScript están en `index.d.ts`.
+Zyrix does not ship a finished bot. Your process imports the module, sets up authentication, registers listeners and calls what it needs. TypeScript declarations are in `index.d.ts`.
 
-## Inicio rápido
+## Quick start
 
-`start` hace lo que casi todos acaban escribiendo a mano alrededor de la conexión: abre la sesión, pide el código de emparejamiento (o muestra el QR si no le das un número), reconecta, vuelve a emparejar cuando la sesión deja de servir y cierra bien al terminar. No imprime textos propios. Solo emite eventos y tú decides qué mostrar.
+`start` does what almost everyone ends up writing by hand around a connection: it opens the session, requests the pairing code (or shows a QR if you do not pass a number), reconnects, pairs again when the session stops being valid and shuts down cleanly. It prints nothing of its own. It emits events and you decide what to show.
 
 ```js
 import { start } from '@axel-dev09/zyrix'
 
 const launcher = await start({ session: './session', phoneNumber: '5215551234567' })
-launcher.sock.sendText('5215551234567@s.whatsapp.net', 'hola')
+launcher.sock.sendText('5215551234567@s.whatsapp.net', 'hi')
 ```
 
-Sin `phoneNumber` muestra el QR. También puedes pasar una función (normal o `async`) que se llama solo cuando hace falta vincular, por ejemplo `promptPhone('Número: ')`. `await start()` termina cuando el socket abre. Si falla antes, rechaza con un `ZyrixError` de tipo `closed`.
+Without `phoneNumber` it shows a QR. You can also pass a function (plain or `async`) that is called only when pairing is needed, for example `promptPhone('Number: ')`. `await start()` resolves when the socket opens. If it fails before that, it rejects with a `ZyrixError` of kind `closed`.
 
-El socket cambia cuando hay que volver a emparejar, así que la lógica que dependa de él va en `setup`. Si `setup` devuelve una función, se ejecuta cuando ese socket se retira:
+The socket changes when pairing has to happen again, so anything that depends on it belongs in `setup`. If `setup` returns a function, it runs when that socket is retired:
 
 ```js
 import { start } from '@axel-dev09/zyrix'
@@ -80,43 +92,45 @@ await start({
 })
 ```
 
-Si necesitas escuchar eventos antes de arrancar, `createLauncher(options)` te da el lanzador sin iniciarlo y lo arrancas con `launcher.start()`.
+If you need to listen for events before starting, `createLauncher(options)` gives you the launcher without starting it, and you start it with `launcher.start()`.
 
-### Eventos del lanzador
+### Launcher events
 
-`socket`, `open`, `qr`, `pairing-code` (`code`, `formatted`), `status`, `issue`, `fatal`, `signal` y `stopped`.
+`socket`, `open`, `qr`, `pairing-code` (`code`, `formatted`), `status`, `issue`, `fatal`, `signal` and `stopped`.
 
-`status` trae `{ state }`, que puede ser `connecting` (con `registered` y `phoneNumber`), `pairing`, `open`, `reconnecting` (con `reason`, `name` y `restart`) o `relaunching` (con `why`: `logged-out`, `bad-session`, `multidevice-mismatch`, `corrupt-session` o `session-deleted`).
+`status` carries `{ state }`, which can be `connecting` (with `registered` and `phoneNumber`), `pairing`, `open`, `reconnecting` (with `reason`, `name` and `restart`) or `relaunching` (with `why`: `logged-out`, `bad-session`, `multidevice-mismatch`, `corrupt-session` or `session-deleted`).
 
-`issue` avisa de problemas que no cortan la conexión. Su `type` puede ser `sender-key-miss` (se agrupa cada 10 s y trae `count`), `stream-error`, `connection-rejected`, `idle`, `timeout`, `save-error`, `setup-error`, `cleanup-error`, `session-deleted` o `error`.
+`issue` reports problems that do not kill the connection. Its `type` can be `sender-key-miss` (batched every 10 s with a `count`), `stream-error`, `connection-rejected`, `idle`, `timeout`, `save-error`, `setup-error`, `cleanup-error`, `session-deleted` or `error`.
 
-`fatal` significa que la conexión no se puede recuperar sola. `reason` es el nombre de un `DisconnectReason` (`connectionReplaced`, `forbidden`, `clientOutdated`...) o uno de estos: `too-many-relaunches`, `invalid-phone`, `auth-error`, `connect-error`, `launch-error`. El proceso no se cierra solo.
+`fatal` means the connection cannot recover on its own. `reason` is the name of a `DisconnectReason` (`connectionReplaced`, `forbidden`, `clientOutdated`...) or one of `too-many-relaunches`, `invalid-phone`, `auth-error`, `connect-error` or `launch-error`. The process never exits by itself.
 
-### Opciones del lanzador
+### Launcher options
 
-| Opción | Para qué sirve |
+| Option | What it does |
 | --- | --- |
-| `autoReset` (`true`) | Si WhatsApp cierra la sesión, la rechaza o está corrupta, borra la sesión local y vuelve a emparejar. Con `false` solo emite `fatal`. |
-| `maxRelaunches`, `relaunchWindowMs` | Tope de relanzamientos. Por defecto 4 en 10 minutos. |
-| `relaunchDelayMs` | Espera entre relanzamientos. |
-| `watchSession`, `watchIntervalMs` | Detectan que alguien borró la carpeta de sesión. |
-| `signals` | `true` o una lista. Cierra limpio con SIGINT, SIGTERM, SIGHUP y SIGTSTP y llama a `process.exit`, salvo que pongas `exit: false`. |
-| `printCode` | Si nadie escucha `pairing-code`, imprime el código con formato `XXXX-XXXX`. |
-| `connector` | Una función tuya para crear el socket. |
+| `autoReset` (`true`) | If WhatsApp logs the session out, rejects it or leaves it corrupt, it deletes the local session and pairs again. With `false` it only emits `fatal`. |
+| `maxRelaunches`, `relaunchWindowMs` | Relaunch cap. Defaults to 4 in 10 minutes. |
+| `relaunchDelayMs` | Wait between relaunches. |
+| `watchSession`, `watchIntervalMs` | Detect that someone deleted the session folder. |
+| `signals` | `true` or a list. Shuts down cleanly on SIGINT, SIGTERM, SIGHUP and SIGTSTP and calls `process.exit`, unless you set `exit: false`. |
+| `printCode` | If nobody listens for `pairing-code`, prints the code formatted as `XXXX-XXXX`. |
+| `connector` | Your own function to create the socket. |
 
-Todo lo demás se pasa al socket. Si usas un adaptador de sesión, el reinicio automático necesita que tenga un método `clear()`. Sin él, el lanzador emite `fatal`.
+Everything else is passed to the socket. If you use a session adapter, automatic reset needs a `clear()` method on it. Without one, the launcher emits `fatal`.
 
-`launcher.stop()` cierra sin desvincular el dispositivo. `launcher.logout()` lo desvincula y borra la sesión. También hay utilidades sueltas: `parsePhoneNumber`, `formatPairingCode`, `promptPhone` y `reasonName`.
+`launcher.stop()` closes without unlinking the device. `launcher.logout()` unlinks it and deletes the session. There are standalone helpers too: `parsePhoneNumber`, `formatPairingCode`, `promptPhone` and `reasonName`.
 
-Para cifrar automáticamente la sesión de archivo, pasa un secreto externo al proceso (no lo escribas en el código ni lo guardes junto a la sesión):
+To encrypt the file session automatically, pass an external secret to the process (do not hard-code it and do not store it next to the session):
+
 ```js
 await start({ session: './session', sessionEncryptionKey: process.env.ZYRIX_SESSION_KEY })
 ```
-Genera un valor aleatorio de al menos 16 bytes y respáldalo en un gestor de secretos. Al migrar una sesión antigua, Zyrix la reescribe cifrada.
 
-### Sin el lanzador
+Generate a random value of at least 16 bytes and keep it in a secret manager. When an old session is migrated, Zyrix rewrites it encrypted.
 
-Si prefieres manejar tú la conexión:
+### Without the launcher
+
+If you would rather manage the connection yourself:
 
 ```js
 import { connect } from '@axel-dev09/zyrix'
@@ -124,11 +138,11 @@ import { connect } from '@axel-dev09/zyrix'
 const sock = await connect({ session: './session', phoneNumber: '5215551234567' })
 ```
 
-`session` puede ser una ruta o un [adaptador](#sesiones-y-store). `makeSocket(options)` es la forma más básica y recibe el `auth` ya armado.
+`session` can be a path or a [session adapter](#sessions-and-store). `makeSocket(options)` is the lowest-level entry point and receives an already-built `auth`.
 
-## Hacer un bot con el kit de comandos
+## Building a bot with the command kit
 
-El kit es opcional y se importa aparte (`@axel-dev09/zyrix/kit`) para que el núcleo quede limpio. Si un handler lanza un error, el kit lo captura y el proceso sigue.
+The kit is optional and imported separately (`@axel-dev09/zyrix/kit`) so the core stays clean. If a handler throws, the kit catches it and the process keeps running.
 
 ```js
 import { connect } from '@axel-dev09/zyrix'
@@ -137,155 +151,157 @@ import { createBot } from '@axel-dev09/zyrix/kit'
 const sock = await connect({ session: './session', phoneNumber: '5215551234567' })
 const bot = createBot(sock, { prefix: ['!', '.'], owners: ['5215551234567'], cooldown: 3 })
 
-bot.command(['ping', 'p'], (m) => m.reply('pong'), { description: 'latencia', category: 'utilidad' })
+bot.command(['ping', 'p'], (m) => m.reply('pong'), { description: 'latency', category: 'utility' })
 bot.command('kick', async (m) => sock.groups.kick(m.chat, m.mentions), { admin: true, botAdmin: true, group: true })
-bot.command('registro', async (m) => {
-  const answer = await m.ask('¿Cómo te llamas?')
-  await m.reply(answer ? `Listo, ${answer.text}` : 'Se acabó el tiempo')
+bot.command('register', async (m) => {
+  const answer = await m.ask('What is your name?')
+  await m.reply(answer ? `Done, ${answer.text}` : 'Time is up')
 })
 
 await bot.loadPlugins('./plugins', { watch: true })
 ```
 
-### Comandos, hears y middlewares
+### Commands, hears and middleware
 
-`bot.command(nombres, handler, meta)` acepta en `meta`: `description`, `category`, `usage`, `group`, `private`, `admin`, `botAdmin`, `owner`, `hidden` y `cooldown` (en segundos). Para reaccionar a texto sin prefijo está `bot.hears(patrón, handler)`, y para middlewares `bot.use((m, next) => ...)`. `bot.help()` y `bot.menu()` generan el menú con el formato que quieras, y lo que devuelven `bot.list()` y `bot.menu()` usa siempre los nombres internos.
+`bot.command(names, handler, meta)` accepts `description`, `category`, `usage`, `group`, `private`, `admin`, `botAdmin`, `owner`, `hidden` and `cooldown` (in seconds) in `meta`. To react to text without a prefix use `bot.hears(pattern, handler)`, and for middleware `bot.use((m, next) => ...)`. `bot.help()` and `bot.menu()` build the menu in whatever format you want; what `bot.list()` and `bot.menu()` return always uses the internal names.
 
-El kit no impone prefijos. Sin `prefix` solo sirve para `hears` y `use`, y registrar un comando lanza un `ZyrixError` de tipo `invalid`. Con `prefix: ''` los comandos se llaman sin prefijo. Cuando captures errores del kit, fíjate en `kind` y no en el texto del mensaje.
+The kit imposes no prefixes. Without `prefix` it only serves `hears` and `use`, and registering a command throws a `ZyrixError` of kind `invalid`. With `prefix: ''` commands are called with no prefix. When you catch kit errors, look at `kind`, not at the message text.
 
-### Mensajes de rechazo y de error
+### Denial and error messages
 
-El kit no envía textos propios. Si no defines las respuestas, no contesta nada. Las defines en `createBot(sock, { messages })` con estas claves: `groupOnly`, `privateOnly`, `ownerOnly`, `adminOnly`, `botAdmin`, `cooldown` y `error`. Cada una puede ser un texto o una función. Si prefieres hacerlo con tu propia lógica, escucha los eventos `command.denied` y `command.error`.
+The kit sends no text of its own. If you do not define the replies, it answers nothing. Define them in `createBot(sock, { messages })` with these keys: `groupOnly`, `privateOnly`, `ownerOnly`, `adminOnly`, `botAdmin`, `cooldown` and `error`. Each can be a string or a function. If you prefer your own logic, listen for `command.denied` and `command.error`.
 
 ### Plugins
 
-`bot.loadPlugins(dir, { watch, recursive })` carga los archivos `.js` y `.mjs` de una carpeta (ignora los que empiezan con `_`) y los recarga cuando los guardas. Un plugin puede exportar un objeto `{ commands, run, ...meta }`, un arreglo de objetos así, o una función `(bot) => {}`. En el último caso puedes llamar a `bot.onUnload(fn)` para limpiar lo que hayas creado.
+`bot.loadPlugins(dir, { watch, recursive })` loads the `.js` and `.mjs` files in a folder (skipping those that start with `_`) and reloads them when you save. A plugin can export an object `{ commands, run, ...meta }`, an array of such objects, or a function `(bot) => {}`. In the last case you can call `bot.onUnload(fn)` to clean up what you created.
 
-Ojo: si cambias un módulo que el plugin importa, no se recarga solo. Solo se recarga el archivo del plugin.
+Note: if you change a module that a plugin imports, it does not reload on its own. Only the plugin file is reloaded.
 
-### Vocabulario propio
+### Your own vocabulary
 
-No tienes que usar los nombres en inglés. Con la opción `vocabulary` (o `vocabulario`) de `createBot` le dices a Zyrix cómo llamas tú a cada cosa. Cada mapa va de tu nombre al nombre interno, y lo que no mapees sigue funcionando con el nombre original.
+You do not have to use the English names. With the `vocabulary` (or `vocabulario`) option of `createBot` you tell Zyrix what you call each thing. Every map goes from your name to the internal name, and anything you do not map keeps working with the original name.
 
-| Mapa | Qué renombra |
+| Map | What it renames |
 | --- | --- |
-| `options` | las opciones de `createBot` |
-| `command` | los metadatos y claves de un comando |
-| `messages` | los textos de rechazo (también el `reason` de `command.denied`) |
-| `hears` | las claves de `hears` |
-| `plugin` | `setup`, `teardown`, `commands` y `hears` |
-| `context` | lo que recibe el handler como segundo argumento |
+| `options` | `createBot` options |
+| `command` | command metadata and keys |
+| `messages` | denial texts (also the `reason` of `command.denied`) |
+| `hears` | `hears` keys |
+| `plugin` | `setup`, `teardown`, `commands` and `hears` |
+| `context` | what the handler receives as its second argument |
 
 ```js
 import { createBot, vocabularioEs } from '@axel-dev09/zyrix/kit'
 
-const bot = createBot(sock, { prefijo: '!', vocabulario: vocabularioEs, mensajes: { soloAdmin: 'Solo admins.' } })
+const bot = createBot(sock, { prefijo: '!', vocabulario: vocabularioEs, mensajes: { soloAdmin: 'Admins only.' } })
 bot.command('kick', async (m) => sock.groups.kick(m.chat, m.mentions), { soloAdmin: true, soloGrupo: true, botAdmin: true })
 
-const propio = createBot(sock, { vocabulary: { options: { pref: 'prefix' }, command: { exige: 'admin' }, messages: { exige: 'adminOnly' } }, pref: '#' })
+const custom = createBot(sock, { vocabulary: { options: { pref: 'prefix' }, command: { requires: 'admin' }, messages: { requires: 'adminOnly' } }, pref: '#' })
 ```
 
-`vocabularioEs` es un preset en español: `soloAdmin`, `soloGrupo`, `soloPrivado`, `soloDueno`, `oculto`, `descripcion`, `categoria`, `uso`, `ejecutar`, `nombres`, `espera`, `prefijo`, `mensajes`, `patron`, `comandos`, `escuchar`, `preparar`, `limpiar`, `texto`, `argumentos`, entre otros. Puedes copiarlo y modificarlo, o armar uno desde cero.
+`vocabularioEs` is a Spanish preset: `soloAdmin`, `soloGrupo`, `soloPrivado`, `soloDueno`, `oculto`, `descripcion`, `categoria`, `uso`, `ejecutar`, `nombres`, `espera`, `prefijo`, `mensajes`, `patron`, `comandos`, `escuchar`, `preparar`, `limpiar`, `texto`, `argumentos`, among others. Copy and change it, or build one from scratch.
 
-### Eventos del bot
+### Bot events
 
-`command`, `command.error`, `command.denied`, `command.unknown`, `plugin.loaded`, `plugin.unloaded` y `plugin.error`.
+`command`, `command.error`, `command.denied`, `command.unknown`, `plugin.loaded`, `plugin.unloaded` and `plugin.error`.
 
-## Recibir mensajes y eventos
+## Receiving messages and events
 
-### El mensaje con contexto
+### The message with context
 
-`sock.on('message', (m) => ...)` te entrega un `MessageContext`: todo lo que devuelve `parseMessage` más varias acciones ya listas.
+`sock.on('message', (m) => ...)` hands you a `MessageContext`: everything `parseMessage` returns plus several ready-made actions.
 
-- Acciones: `reply`, `say`, `react`, `unreact`, `delete`, `edit`, `forward`, `read`, `download`, `typing`, `group`, `isAdmin`, `isBotAdmin`, `getQuoted` y `ask`.
-- Propiedades: `number`, `isMentioned` y `hasMedia`.
+- Actions: `reply`, `say`, `react`, `unreact`, `delete`, `edit`, `forward`, `read`, `download`, `typing`, `group`, `isAdmin`, `isBotAdmin`, `getQuoted` and `ask`.
+- Properties: `number`, `isMentioned` and `hasMedia`.
 
-El evento `messages.upsert` se sigue emitiendo igual, por si lo prefieres.
+The `messages.upsert` event is still emitted as well, if you prefer it.
 
-Las ediciones, borrados, reacciones y votos de encuesta no llegan como `message`. Tienen sus propios eventos: `message.edit`, `message.revoke`, `message.reaction` y `poll.vote`. El voto llega sin descifrar, en `raw`.
+Edits, deletions, reactions and poll votes do not arrive as `message`. They have their own events: `message.edit`, `message.revoke`, `message.reaction` and `poll.vote`. The vote arrives undecrypted, in `raw`.
 
-### Conversaciones
+### Conversations
 
-`sock.waitForMessage(filtro, timeout)` y `m.ask(texto, { timeout, filter, strict })` esperan una respuesta. Si nadie contesta devuelven `null`, o lanzan un `ZyrixError` de tipo `timeout` si usas `strict: true`.
+`sock.waitForMessage(filter, timeout)` and `m.ask(text, { timeout, filter, strict })` wait for a reply. If nobody answers they return `null`, or throw a `ZyrixError` of kind `timeout` if you pass `strict: true`.
 
-### Errores dentro de listeners
+### Errors inside listeners
 
-El socket usa `captureRejections`. Si un listener `async` lanza un error, llega al evento `error` y no se convierte en un `unhandledRejection`.
+The socket uses `captureRejections`. If an `async` listener throws, the error reaches the `error` event and never becomes an `unhandledRejection`.
 
 ### parseMessage
 
-`parseMessage(evento)` (también disponible como `socket.parseMessage`) convierte un `messages.upsert` en un objeto como `{ chat, sender, senderAlt, isGroup, type, text, mentions, quoted, media, offline, ... }`. El `quoted` se puede pasar directo a `reply`.
+`parseMessage(event)` (also available as `socket.parseMessage`) turns a `messages.upsert` into an object such as `{ chat, sender, senderAlt, isGroup, type, text, mentions, quoted, media, offline, ... }`. The `quoted` value can be passed straight to `reply`.
 
-### Todos los eventos del socket
+### Every socket event
 
-`open`, `close`, `qr`, `pairing-code`, `connection.update`, `messages.upsert`, `receipt`, `contacts.upsert`, `chats.update`, `app-state.mutation`, `groups.update`, `group-participants.update` (`add`, `remove`, `promote`, `demote`, `leave`), `presence.update`, `call`, `identity.changed`, `send.warning` y `error`.
+`open`, `close`, `qr`, `pairing-code`, `connection.update`, `messages.upsert`, `receipt`, `contacts.upsert`, `chats.update`, `app-state.mutation`, `groups.update`, `group-participants.update` (`add`, `remove`, `promote`, `demote`, `leave`), `presence.update`, `call`, `identity.changed`, `send.warning` and `error`.
 
-`connection.update` junta el estado de la conexión en `{ connection: 'connecting' | 'open' | 'close', qr, isNewLogin, lastDisconnect }`. Los mensajes que llegan de la cola offline traen `offline: true`, que sirve para ignorar comandos viejos después de reconectar.
+`connection.update` folds connection state into `{ connection: 'connecting' | 'open' | 'close', qr, isNewLogin, lastDisconnect }`. Messages arriving from the offline queue carry `offline: true`, which lets you ignore stale commands after reconnecting.
 
-Si vienes de Baileys: `sock.ev` es un alias del propio emisor (`sock.ev.on(...)` hace lo mismo que `sock.on(...)`), `sock.user` es `auth.state.creds.me` y `sock.authState` es el estado de autenticación de la conexión.
+### Coming from Baileys
 
-## Enviar mensajes
+Aliases exist so the migration is mechanical: `sock.ev` is the emitter itself (`sock.ev.on(...)` does the same as `sock.on(...)`), `sock.user` is `auth.state.creds.me` and `sock.authState` is the connection's authentication state.
 
-### Métodos
+## Sending messages
 
-| Para | Métodos |
+### Methods
+
+| For | Methods |
 | --- | --- |
-| Texto | `sendMessage(jid, content, options?)`, `sendText(jid, text, options?)` |
-| Responder citando | `reply(to, text, quoted)` |
-| Botones, listas y encuestas | `sendButtons`, `sendInteractive`, `sendList`, `sendPoll` |
-| Otros formatos | `sendReaction`, `sendLocation`, `sendContact`, `sendContacts`, `sendMedia` |
-| Atajos de media | `sendImage`, `sendVideo`, `sendAudio`, `sendDocument`, `sendSticker` |
-| Borrar y editar | `sendDelete(jid, target)`, `sendEdit(jid, target, text)` |
-| Reenviar e invitar | `forward(jid, mensaje)`, `sendGroupInvite` |
-| Álbumes y paquetes de stickers | `sendAlbum(jid, items)`, `sendStickerPack(jid, { pack, name, publisher, stickers })` |
+| Text | `sendMessage(jid, content, options?)`, `sendText(jid, text, options?)` |
+| Quoted replies | `reply(to, text, quoted)` |
+| Buttons, lists and polls | `sendButtons`, `sendInteractive`, `sendList`, `sendPoll` |
+| Other formats | `sendReaction`, `sendLocation`, `sendContact`, `sendContacts`, `sendMedia` |
+| Media shortcuts | `sendImage`, `sendVideo`, `sendAudio`, `sendDocument`, `sendSticker` |
+| Deleting and editing | `sendDelete(jid, target)`, `sendEdit(jid, target, text)` |
+| Forwarding and invites | `forward(jid, message)`, `sendGroupInvite` |
+| Albums and sticker packs | `sendAlbum(jid, items)`, `sendStickerPack(jid, { pack, name, publisher, stickers })` |
 
-Las opciones comunes son `quoted` (un evento con `key` y `message`), `mentions` y `contextInfo`. También existen `expiration` (mensajes temporales), `viewOnce` (imagen, vídeo o audio) y `linkPreview`. Las imágenes, vídeos y documentos aceptan `caption`.
+The common options are `quoted` (an event with `key` and `message`), `mentions` and `contextInfo`. There is also `expiration` (disappearing messages), `viewOnce` (image, video or audio) and `linkPreview`. Images, videos and documents accept a `caption`.
 
-Si el grupo tiene mensajes temporales y no indicas `expiration`, Zyrix usa la duración del grupo. Para eso necesita tener la metadata del grupo en caché.
+If the group uses disappearing messages and you do not pass `expiration`, Zyrix uses the group's duration. That requires the group metadata to be cached.
 
-### Si vienes de Baileys
+### Content shapes
 
-`sendMessage` mira la forma del contenido y lo manda al método que corresponde. Entiende `{ image, caption }`, `{ video, caption }`, `{ audio, ptt }`, `{ document, fileName }`, `{ sticker }`, `{ buttons, text }`, `{ list }`, `{ poll }`, `{ location }`, `{ contact }`, `{ contacts }`, `{ delete: key }` y `{ edit: key, text }`. También acepta objetos protobuf completos.
+`sendMessage` looks at the shape of the content and routes it to the right method. It understands `{ image, caption }`, `{ video, caption }`, `{ audio, ptt }`, `{ document, fileName }`, `{ sticker }`, `{ buttons, text }`, `{ list }`, `{ poll }`, `{ location }`, `{ contact }`, `{ contacts }`, `{ delete: key }` and `{ edit: key, text }`. It also accepts complete protobuf objects.
 
-### Confirmación de envío
+### Send confirmation
 
-`sendMessage` y los `send*` esperan el ack del servidor y devuelven `{ key, message, status, messageTimestamp }`. El `status` es `'sent'`, o `'unconfirmed'` si pasaron 30 segundos sin ack. Si el servidor rechaza el mensaje se lanza un error con `code`. Si no se puede cifrar para ningún dispositivo del destinatario, también se lanza un error en lugar de enviar en silencio, y los dispositivos que se omitieron se avisan con el evento `send.warning`.
+`sendMessage` and the other `send*` methods wait for the server ack and return `{ key, message, status, messageTimestamp }`. `status` is `'sent'`, or `'unconfirmed'` if 30 seconds pass without an ack. If the server rejects the message, an error with a `code` is thrown. If it cannot be encrypted for any of the recipient's devices, an error is thrown instead of sending silently, and the devices that were skipped are reported through `send.warning`.
 
 ### Media
 
-Los tipos son `image`, `video`, `audio`, `document` y `sticker`. Puedes pasar un Buffer, un `Uint8Array`, una ruta, una URL, `{ url }`, `{ path }` o `{ stream }`. Los Buffer/URLs siguen sujetos a `maxMediaBytes` (100 MiB por defecto). Para archivos grandes, `{ stream }` se escribe por bloques a un temporal privado y luego se cifra/sube usando el flujo de archivos; el límite es `maxFileBytes` (2 GiB por defecto), y hace falta espacio libre en disco (durante el envío puede necesitar cerca de dos veces el tamaño del archivo, por los temporales de origen y cifrado). También se aceptan `thumbnail`, `width`, `height`, `seconds` y `waveform`. Para adjuntos pequeños, `downloadMedia(message)` devuelve un Buffer. Para descargar un adjunto grande sin cargarlo entero en memoria, usa `downloadMediaToFile(message, outputPath, { maxBytes, timeout })`: descifra por bloques y solo publica el archivo final si el MAC es válido. No sobrescribe un archivo de salida existente.
+The types are `image`, `video`, `audio`, `document` and `sticker`. You can pass a Buffer, a `Uint8Array`, a path, a URL, `{ url }`, `{ path }` or `{ stream }`. Buffers and URLs are still bound by `maxMediaBytes` (100 MiB by default). For large files, `{ stream }` is written in chunks to a private temporary file and then encrypted and uploaded through the file path; the limit is `maxFileBytes` (2 GiB by default) and you need free disk space (a send may need close to twice the file size, for the source and encrypted temporaries). `thumbnail`, `width`, `height`, `seconds` and `waveform` are also accepted. For small attachments, `downloadMedia(message)` returns a Buffer. To download a large attachment without loading it into memory, use `downloadMediaToFile(message, outputPath, { maxBytes, timeout })`: it decrypts in chunks and only publishes the final file if the MAC is valid. It never overwrites an existing output file.
 
-`sendAlbum` sube cada imagen o vídeo y los asocia con `MessageAssociation.MEDIA_ALBUM`. Devuelve los mensajes y los contadores de imágenes y vídeos. El protocolo no garantiza que todas las versiones de WhatsApp los muestren como una sola tarjeta.
+`sendAlbum` uploads each image or video and associates them with `MessageAssociation.MEDIA_ALBUM`. It returns the messages and the image and video counts. The protocol does not guarantee every WhatsApp version shows them as a single card.
 
-Un paquete de stickers se crea con `content.stickerPack(...)`. El archivo `pack` tiene que contener el paquete, y cada entrada de `stickers` necesita su `fileName`, los emojis y, si quieres, metadatos. Los paquetes que recibas se descargan con `downloadMedia`.
+A sticker pack is built with `content.stickerPack(...)`. The `pack` file must contain the pack, and each `stickers` entry needs its `fileName`, the emojis and, optionally, metadata. Packs you receive are downloaded with `downloadMedia`.
 
-### Constructores de contenido
+### Content builders
 
-Sirven para armar el mensaje sin enviarlo: `content.text`, `buttons`, `interactive`, `list`, `poll`, `location`, `contact`, `reaction`, `vcard({ name, number })` y `buildMessage`. Para leer mensajes recibidos están `content.extractText` y `content.unwrapMessage`.
+They build a message without sending it: `content.text`, `buttons`, `interactive`, `list`, `poll`, `location`, `contact`, `reaction`, `vcard({ name, number })` and `buildMessage`. To read received messages there are `content.extractText` and `content.unwrapMessage`.
 
-Los botones, las listas y los mensajes interactivos dependen de lo que el servicio y el tipo de cuenta permitan. Comprueba que funcionan en tu caso antes de apoyarte en ellos.
+Buttons, lists and interactive messages depend on what the service and the account type allow. Check that they work for your case before relying on them.
 
-## JID, PN y LID
+## JID, PN and LID
 
-WhatsApp tiene dos tipos de identificador: el que se basa en el teléfono (`123@s.whatsapp.net`, PN) y uno opaco (`9001@lid`, LID). En los grupos, a veces el `participant` llega como LID. Cuando el servidor también manda el teléfono, Zyrix guarda los dos:
+WhatsApp has two kinds of identifiers: the phone-based one (`123@s.whatsapp.net`, PN) and an opaque one (`9001@lid`, LID). In groups the `participant` sometimes arrives as a LID. When the server also sends the phone number, Zyrix stores both:
 
 ```js
 const meta = await socket.groupMetadata(groupJid)
 const participant = await socket.getGroupParticipant(groupJid, '9001@lid')
 
-participant.id          // identificador canónico, normalmente el LID
+participant.id          // canonical identifier, usually the LID
 participant.lid         // 9001@lid
-participant.phoneNumber // 123@s.whatsapp.net, si WhatsApp lo entregó
-participant.username    // notify/name recibido, si existe
+participant.phoneNumber // 123@s.whatsapp.net, if WhatsApp provided it
+participant.username    // received notify/name, if any
 ```
 
-Los eventos de mensajes traen `participantAlt` y `remoteJidAlt` cuando Zyrix ya conoce el par PN/LID. En los comandos no compares strings a mano: usa `resolveJid`, `getJidAliases` e `isGroupAdmin`. Un LID no se convierte a teléfono por la fuerza. El teléfono solo aparece si WhatsApp entregó la equivalencia. Con `onWhatsApp(...numeros)` puedes comprobar números y, de paso, aprender pares PN/LID.
+Message events carry `participantAlt` and `remoteJidAlt` when Zyrix already knows the PN/LID pair. In commands, do not compare strings by hand: use `resolveJid`, `getJidAliases` and `isGroupAdmin`. A LID is never forced into a phone number. The phone number only appears when WhatsApp provided the equivalence. `onWhatsApp(...numbers)` checks numbers and, on the way, learns PN/LID pairs.
 
-Utilidades de JID exportadas: `jidDecode`, `jidEncode`, `normalizeJid`, `jidNormalizedUser`, `jidWithoutDevice`, `jidType`, `isJidUser`, `isJidLid`, `isJidPN` e `isJidGroup`.
+Exported JID helpers: `jidDecode`, `jidEncode`, `normalizeJid`, `jidNormalizedUser`, `jidWithoutDevice`, `jidType`, `isJidUser`, `isJidLid`, `isJidPN` and `isJidGroup`.
 
-## Grupos, perfil, privacidad y más
+## Groups, profile, privacy and more
 
-`sock.groups`, `sock.privacy`, `sock.profile`, `sock.chats` y `sock.presence` agrupan los métodos por tema y, donde tiene sentido, aceptan uno o varios usuarios. Los métodos planos (`groupParticipantsUpdate`, `updatePrivacyCategory`, etc.) siguen existiendo.
+`sock.groups`, `sock.privacy`, `sock.profile`, `sock.chats` and `sock.presence` group methods by topic and, where it makes sense, accept one or several users. The flat methods (`groupParticipantsUpdate`, `updatePrivacyCategory`, and so on) still exist.
 
 ```js
 await sock.groups.add(jid, '5215551234567@s.whatsapp.net')
@@ -295,87 +311,87 @@ await sock.chats.pin(jid)
 sock.presence.typing(jid)
 ```
 
-### Referencia
+### Reference
 
-| Área | Métodos |
+| Area | Methods |
 | --- | --- |
-| Grupos | `groupCreate`, `groupMetadata`, `groupFetchAllParticipating`, `getGroupParticipant`, `getGroupAdmins`, `isGroupAdmin`, `groupParticipantsUpdate`, `groupUpdateSubject`, `groupUpdateDescription`, `groupSettingUpdate`, `groupLeave`, `groupInviteCode`, `groupRevokeInvite`, `groupAcceptInvite`, `groupGetInviteInfo`, `groupRequestParticipantsList`, `groupRequestParticipantsUpdate`, `groupToggleEphemeral`, `groupMemberAddMode`, `groupJoinApprovalMode` |
-| Cuenta propia | `updateProfileName`, `updateProfileStatus`, `updateProfilePicture`, `removeProfilePicture`, `profilePictureUrl`, `fetchStatus`, `getBusinessProfile`, `fetchBlocklist`, `updateBlockStatus` |
-| Privacidad | `fetchPrivacySettings`, `updateLastSeenPrivacy`, `updateOnlinePrivacy`, `updateProfilePicturePrivacy`, `updateStatusPrivacy`, `updateReadReceiptsPrivacy`, `updateGroupsAddPrivacy`, `updateMessagesPrivacy`, `updateCallPrivacy`, `updateDefaultDisappearingMode` |
-| Recibos y presencia | `readMessages(keys)`, `sendReceipt`, `sendPresenceUpdate('available' \| 'unavailable' \| 'composing' \| 'recording' \| 'paused', jid?)`, `presenceSubscribe` |
-| Chats y llamadas | `chatModify({ pin \| mute \| archive \| markRead }, jid)`, `rejectCall` (o la opción `autoRejectCalls`) |
-| Sesión | `requestPairingCode`, `syncAppState`, `waitForOpen`, `logout`, `end` (devuelve una promesa que espera a que se guarde la sesión) |
+| Groups | `groupCreate`, `groupMetadata`, `groupFetchAllParticipating`, `getGroupParticipant`, `getGroupAdmins`, `isGroupAdmin`, `groupParticipantsUpdate`, `groupUpdateSubject`, `groupUpdateDescription`, `groupSettingUpdate`, `groupLeave`, `groupInviteCode`, `groupRevokeInvite`, `groupAcceptInvite`, `groupGetInviteInfo`, `groupRequestParticipantsList`, `groupRequestParticipantsUpdate`, `groupToggleEphemeral`, `groupMemberAddMode`, `groupJoinApprovalMode` |
+| Own account | `updateProfileName`, `updateProfileStatus`, `updateProfilePicture`, `removeProfilePicture`, `profilePictureUrl`, `fetchStatus`, `getBusinessProfile`, `fetchBlocklist`, `updateBlockStatus` |
+| Privacy | `fetchPrivacySettings`, `updateLastSeenPrivacy`, `updateOnlinePrivacy`, `updateProfilePicturePrivacy`, `updateStatusPrivacy`, `updateReadReceiptsPrivacy`, `updateGroupsAddPrivacy`, `updateMessagesPrivacy`, `updateCallPrivacy`, `updateDefaultDisappearingMode` |
+| Receipts and presence | `readMessages(keys)`, `sendReceipt`, `sendPresenceUpdate('available' \| 'unavailable' \| 'composing' \| 'recording' \| 'paused', jid?)`, `presenceSubscribe` |
+| Chats and calls | `chatModify({ pin \| mute \| archive \| markRead }, jid)`, `rejectCall` (or the `autoRejectCalls` option) |
+| Session | `requestPairingCode`, `syncAppState`, `waitForOpen`, `logout`, `end` (returns a promise that waits for the session to be saved) |
 
-`fetchStatus` solo consulta el estado de texto de un usuario. Todo esto depende de lo que la cuenta y el servidor permitan en cada momento.
+`fetchStatus` only reads a user's text status. All of this depends on what the account and the server allow at any given moment.
 
-El cambio de nombre del perfil usa el generador de parches `appStatePatch`, con LTHash, MAC de índice, MAC de valor, `snapshotMac` y `patchMac`, y guarda el estado por colección. Si todavía no llegó una clave de app-state, usa como respaldo el IQ de perfil.
+Changing the profile name uses the `appStatePatch` generator, with LTHash, index MAC, value MAC, `snapshotMac` and `patchMac`, and stores state per collection. If no app-state key has arrived yet, it falls back to the profile IQ.
 
-## Sesiones y store
+## Sessions and store
 
-### Sesión en archivos
+### File session
 
-`useFileAuthState(dir, { debounceMs, encryptionKey })` guarda las claves en un solo archivo, `state.json`, con escritura atómica, permisos `0600` y una copia `state.json.bak`. `encryptionKey` activa cifrado autenticado AES-256-GCM con clave derivada mediante scrypt. Guárdala fuera de la carpeta y de Mongo (por ejemplo, en un secret manager); si la pierdes, no podrás recuperar la sesión. Sin esa opción, se mantiene compatibilidad con snapshots JSON anteriores sin cifrar. Los guardados son asíncronos y se agrupan según `debounceMs` (300 por defecto). `auth.flush()` espera a que terminen y rechaza si no se pudo persistir el estado; el socket además informa del fallo por el evento `error`. Si había `creds.json` y `keys.json` de versiones anteriores, los lee y los migra al snapshot.
+`useFileAuthState(dir, { debounceMs, encryptionKey })` keeps the keys in a single file, `state.json`, with atomic writes, `0600` permissions and a `state.json.bak` copy. `encryptionKey` enables authenticated AES-256-GCM encryption with a scrypt-derived key. Keep it outside the folder and outside Mongo (a secret manager, for example); if you lose it you cannot recover the session. Without that option, older unencrypted JSON snapshots remain compatible. Saves are asynchronous and batched according to `debounceMs` (300 by default). `auth.flush()` waits for them and rejects if the state could not be persisted; the socket also reports the failure through the `error` event. If `creds.json` and `keys.json` from older versions are present, they are read and migrated into the snapshot.
 
-La biblioteca corrige permisos en sistemas POSIX y rechaza symlinks para la carpeta y los archivos de sesión. Mantén la carpeta privada y no la subas a un repositorio ni la compartas. El cifrado opcional protege los archivos y backups en reposo, pero no sustituye el control de acceso al proceso ni al secreto.
+The library fixes permissions on POSIX systems and rejects symlinks for the session folder and files. Keep the folder private, out of a repository, and never share it. Optional encryption protects the files and backups at rest, but it does not replace access control on the process or the secret.
 
-### Adaptadores
+### Adapters
 
-`useAdapterAuthState(adapter, { encryptionKey })` acepta cualquier objeto con `{ read(), write(data) }` y cifra el snapshot si pasas una clave. `start`, `createLauncher` y `connect` aceptan `sessionEncryptionKey` para usar ese mismo cifrado al crear la sesión automáticamente. Vienen incluidos `memoryAdapter()` y `mongoAdapter(collection, id)`, que funciona con el driver oficial de MongoDB. Para varias sesiones, usa un `id` distinto por cuenta (`mongoAdapter(collection, 'bot-a')`, `mongoAdapter(collection, 'bot-b')`); cada una queda en un documento independiente y el adapter aplica un límite seguro por debajo de 16 MB BSON. Si la sesión está corrupta lanza un error, en lugar de crear otra y hacerte perder el emparejamiento.
+`useAdapterAuthState(adapter, { encryptionKey })` accepts any object with `{ read(), write(data) }` and encrypts the snapshot if you pass a key. `start`, `createLauncher` and `connect` accept `sessionEncryptionKey` to use the same encryption when they create the session automatically. `memoryAdapter()` and `mongoAdapter(collection, id)` are included; the latter works with the official MongoDB driver. For several sessions, use a different `id` per account (`mongoAdapter(collection, 'bot-a')`, `mongoAdapter(collection, 'bot-b')`); each one ends up in its own document and the adapter enforces a safe limit below the 16 MB BSON cap. A corrupt session throws instead of creating a new one and losing your pairing.
 
-Hay un límite que conviene tener presente: el adaptador guarda el estado completo cada vez, agrupado por `debounceMs`, y todavía no escribe por clave. Eso incluye credenciales, sesiones Signal, sender keys y claves de app-state, y crece con la cantidad de contactos y grupos. Con `mongoAdapter` el documento no puede pasar de los 16 MB de MongoDB. Si manejas varias sesiones en un proceso, o cuentas con mucha actividad, usa un documento por sesión (el `id` de `mongoAdapter(collection, id)`), sube el `debounceMs` y vigila el tamaño de `state.json`.
+One limitation is worth keeping in mind: the adapter writes the whole state every time, batched by `debounceMs`, and does not yet write per key. That includes credentials, Signal sessions, sender keys and app-state keys, and it grows with the number of contacts and groups. With `mongoAdapter` the document cannot exceed MongoDB's 16 MB. If you run several sessions in one process, or accounts with heavy activity, use one document per session (the `id` of `mongoAdapter(collection, id)`), raise `debounceMs` and watch the size of `state.json`.
 
 ### Store
 
-`createStore(socket, { maxMessagesPerChat, maxChats })` guarda mensajes, chats, contactos, grupos y presencias con límites de memoria. Se puede volcar a disco con `writeToFile` y leer con `readFromFile`.
+`createStore(socket, { maxMessagesPerChat, maxChats })` keeps messages, chats, contacts, groups and presence with memory limits. It can be dumped to disk with `writeToFile` and read with `readFromFile`.
 
-`makeInMemoryStore(options)` es otra opción, al estilo de los stores de Baileys. Lo enlazas con `store.bind(sock)` y trae `loadMessage`, `getMessage`, `getMessages`, `toJSON`, `fromJSON`, `writeToFile` y `readFromFile`.
+`makeInMemoryStore(options)` is another option, with the same shape as the socket store. You bind it with `store.bind(sock)` and it provides `loadMessage`, `getMessage`, `getMessages`, `toJSON`, `fromJSON`, `writeToFile` and `readFromFile`.
 
-Para poder responder a los recibos de reintento incluso después de reiniciar el proceso, pásale el store al socket:
+So that retry receipts can be answered even after the process restarts, hand the store to the socket:
 
 ```js
 const sock = await makeSocket({ auth, getMessage: (key) => store.getMessage(key) })
 ```
 
-## Conexión y reconexión
+## Connection and reconnection
 
-El evento `close` informa `{ reason, loggedOut, reconnecting }`. Hay razones terminales que no se reintentan: `401` (sesión cerrada), `403`, `405`, `411`, `440` (reemplazada por otra sesión) y `500` (sesión dañada). Con el resto reconecta usando backoff exponencial con jitter, salvo `515` (reinicio después de emparejar), que reconecta de inmediato.
+The `close` event reports `{ reason, loggedOut, reconnecting }`. Some reasons are terminal and never retried: `401` (logged out), `403`, `405`, `411`, `440` (replaced by another session) and `500` (damaged session). Everything else reconnects with exponential backoff and jitter, except `515` (restart after pairing), which reconnects immediately.
 
-El keepalive cierra y reinicia la conexión después de dos pings fallidos o de 80 segundos sin recibir datos. Las opciones para ajustar todo esto son `reconnect`, `maxReconnectAttempts`, `keepAliveIntervalMs` y `queryTimeoutMs`.
+Keepalive closes and restarts the connection after two failed pings or 80 seconds without data. The options that adjust all of this are `reconnect`, `maxReconnectAttempts`, `keepAliveIntervalMs` and `queryTimeoutMs`.
 
-`end()` se puede llamar más de una vez sin problema y detiene la reconexión automática. Si el socket detecta un error de descifrado Noise o de parsing del protocolo, cierra y programa una reconexión.
+`end()` can be called more than once and stops automatic reconnection. If the socket detects a Noise decryption error or a protocol parsing error, it closes and schedules a reconnect.
 
-## Errores
+## Errors
 
-Los errores propios son `ZyrixError`. Tienen un `kind` (`timeout`, `closed`, `not-ready`, `rejected`, `invalid`, `no-session`, `decrypt`, `media` o `auth`), un `code` cuando lo manda el servidor y un `retryable`. `ErrorKind` e `isZyrixError` están exportados.
+Zyrix errors are `ZyrixError`. They carry a `kind` (`timeout`, `closed`, `not-ready`, `rejected`, `invalid`, `no-session`, `decrypt`, `media` or `auth`), a `code` when the server sends one, and `retryable`. `ErrorKind` and `isZyrixError` are exported.
 
 ```js
 try {
-  await sock.sendText(jid, 'hola')
+  await sock.sendText(jid, 'hi')
 } catch (error) {
   if (isZyrixError(error, ErrorKind.REJECTED)) console.log(error.code)
-  else if (error.retryable) reintentar()
+  else if (error.retryable) retry()
 }
 ```
 
-## Seguridad
+## Security
 
-### Opciones del socket
+### Socket options
 
-Además de las de conexión, `makeSocket` acepta:
+Besides the connection ones, `makeSocket` accepts:
 
-| Opción | Descripción |
+| Option | Description |
 | --- | --- |
-| `browser` | `[sistema, navegador, versión]`. Por defecto `['Mac OS', 'Chrome', '4.0.0']`. Se usa para armar el `UserAgent`, el `webInfo` y los `DeviceProps` del registro. |
-| `maxMediaBytes` | Límite para media que se maneja en memoria. 100 MiB por defecto. |
-| `maxFileBytes` | Límite para media a disco/stream. 2 GiB por defecto; requiere espacio temporal suficiente. |
-| `logger` | Tu propio logger. |
-| `getMessage` | Recupera mensajes para contestar recibos de reintento. |
-| `autoRejectCalls` | Rechaza las llamadas automáticamente. |
-| `markOnlineOnConnect` | Con `false`, el teléfono sigue recibiendo notificaciones. |
-| `syncFullHistory` | `false` por defecto. |
-| `minSendIntervalMs` | Intervalo mínimo entre envíos. |
-| `trustPolicy` | Qué hacer cuando cambia la identidad de un dispositivo (ver abajo). |
-| `sentCacheSize`, `groupCacheSize` | Tamaño de las cachés. |
+| `browser` | `[system, browser, version]`. Defaults to `['Mac OS', 'Chrome', '4.0.0']`. Used to build the `UserAgent`, the `webInfo` and the registration `DeviceProps`. |
+| `maxMediaBytes` | Limit for media handled in memory. 100 MiB by default. |
+| `maxFileBytes` | Limit for media going to disk or a stream. 2 GiB by default; needs enough temporary space. |
+| `logger` | Your own logger. |
+| `getMessage` | Retrieves messages to answer retry receipts. |
+| `autoRejectCalls` | Rejects calls automatically. |
+| `markOnlineOnConnect` | With `false`, the phone keeps receiving notifications. |
+| `syncFullHistory` | `false` by default. |
+| `minSendIntervalMs` | Minimum interval between sends. |
+| `trustPolicy` | What to do when a device identity changes (see below). |
+| `sentCacheSize`, `groupCacheSize` | Cache sizes. |
 
 ```js
 const socket = await makeSocket({ auth, browser: ['Mac OS', 'Chrome', '4.0.0'], maxMediaBytes: 25 * 1024 * 1024 })
@@ -383,86 +399,116 @@ const socket = await makeSocket({ auth, browser: ['Mac OS', 'Chrome', '4.0.0'], 
 
 ### trustPolicy
 
-Controla qué pasa cuando un dispositivo Signal que ya conocías aparece con una identidad nueva.
+Controls what happens when a Signal device you already knew shows up with a new identity.
 
-- `'update'` (por defecto) acepta la identidad nueva, la reemplaza y emite `identity.changed`. Es lo que un bot necesita cuando un contacto reinstala WhatsApp.
-- `'tofu'` rechaza el cambio, y el descifrado falla hasta que borres la sesión de ese dispositivo.
-- Una función `(id, nueva, guardada) => boolean` te deja decidir caso por caso.
+- `'update'` (default) accepts the new identity, replaces it and emits `identity.changed`. It is what a bot needs when a contact reinstalls WhatsApp.
+- `'tofu'` rejects the change, and decryption fails until you delete that device's session.
+- A function `(id, newIdentity, storedIdentity) => boolean` lets you decide case by case.
 
-Cada cambio de identidad, aceptado o rechazado, emite `identity.changed` con `{ id, accepted }`. El `id` es el identificador Signal del dispositivo (`usuario.dispositivo`). Vale la pena escucharlo. Un cambio de identidad es normal si alguien reinstaló WhatsApp, pero también es lo que verías si hubiera un intermediario.
+Every identity change, accepted or rejected, emits `identity.changed` with `{ id, accepted }`. The `id` is the device's Signal identifier (`user.device`). It is worth listening to. An identity change is normal when someone reinstalls WhatsApp, but it is also what you would see behind a man in the middle.
 
 ```js
 sock.on('identity.changed', ({ id, accepted }) => {
-  console.log(`identidad de ${id} cambió, aceptada: ${accepted}`)
+  console.log(`identity of ${id} changed, accepted: ${accepted}`)
 })
 
 const sock = await makeSocket({
   auth,
-  trustPolicy: async (id, nueva, guardada) => owners.has(id.split('.')[0])
+  trustPolicy: async (id, newIdentity, storedIdentity) => owners.has(id.split('.')[0])
 })
 ```
 
-Si tu bot solo atiende a contactos conocidos o maneja información sensible, usa `'tofu'` o una función que decida por usuario. Con `'update'` aceptas cualquier clave nueva sin intervenir.
+If your bot only serves known contacts or handles sensitive information, use `'tofu'` or a function that decides per user. With `'update'` you accept any new key without intervention.
 
-### Otras protecciones
+### Other protections
 
-Las URLs HTTP(S) pasadas como media se validan para rechazar loopback, redes privadas/link-local, hosts locales, puertos no estándar y redirects hacia destinos no públicos. Aun así, evita pasar URLs arbitrarias controladas por usuarios a un bot expuesto a Internet y aplica reglas de egress en el servidor: el control de red/DNS de tu entorno es la defensa final contra cambios maliciosos de DNS. Las operaciones de media usan límites de tamaño; la descarga remota tiene timeout configurable.
+HTTP(S) URLs passed as media are validated to reject loopback, private/link-local networks, local hosts, non-standard ports and redirects to non-public destinations. Even so, avoid passing arbitrary user-controlled URLs to an internet-exposed bot, and apply egress rules on the server: your network and DNS controls are the final defence against malicious DNS changes. Media operations use size limits; remote downloads have a configurable timeout.
 
-Los mensajes entrantes que ya se procesaron se descartan por id durante 10 minutos, para que una reentrega del servidor no genere errores ni reintentos. Al sacar a alguien de un grupo, se rota la sender key propia de ese grupo. Las notificaciones de cambio de dispositivos invalidan la caché de dispositivos, y las de `encrypt` reponen prekeys.
+Incoming messages that were already processed are dropped by id for 10 minutes, so a server redelivery does not cause errors or retries. When someone is removed from a group, the group's own sender key is rotated. Device-change notifications invalidate the device cache, and `encrypt` notifications top up prekeys.
 
-## Business, canales y comunidades
+## Business, channels and communities
 
 ### Business
 
-Para cuentas que tengan esas capacidades, el socket incluye `getCatalog({ jid?, limit?, cursor? })`, `getCollections(jid?, limit?)`, `getOrderDetails(orderId, tokenBase64)`, `productCreate(product)`, `productUpdate(productId, update)`, `productDelete(productIds)`, `updateBusinessProfile(profile)`, `updateCoverPhoto(image)` y `removeCoverPhoto(id)`.
+For accounts with those capabilities, the socket includes `getCatalog({ jid?, limit?, cursor? })`, `getCollections(jid?, limit?)`, `getOrderDetails(orderId, tokenBase64)`, `productCreate(product)`, `productUpdate(productId, update)`, `productDelete(productIds)`, `updateBusinessProfile(profile)`, `updateCoverPhoto(image)` and `removeCoverPhoto(id)`.
 
-Los mismos métodos, con nombres más cortos, están en `sock.business`: `catalog`, `collections`, `orderDetails`, `createProduct`, `updateProduct`, `deleteProducts`, `profile`, `coverPhoto`, `removeCoverPhoto` y `getProfile`.
+The same methods, with shorter names, are on `sock.business`: `catalog`, `collections`, `orderDetails`, `createProduct`, `updateProduct`, `deleteProducts`, `profile`, `coverPhoto`, `removeCoverPhoto` and `getProfile`.
 
-Para crear un producto entrega `name`, `description`, `price`, `currency` e `images`. Las imágenes aceptan las mismas entradas que `MediaInput` y se suben a la ruta de catálogo de WhatsApp.
+To create a product pass `name`, `description`, `price`, `currency` and `images`. Images accept the same inputs as `MediaInput` and are uploaded to WhatsApp's catalog path.
 
 ```js
-await sock.business.createProduct({ name: 'Taza', description: 'Cerámica', price: 12.5, currency: 'USD', images: ['./taza.jpg'] })
+await sock.business.createProduct({ name: 'Mug', description: 'Ceramic', price: 12.5, currency: 'USD', images: ['./mug.jpg'] })
 ```
 
-Que funcione depende de la cuenta y del protocolo del servidor, así que pruébalo primero con una cuenta de prueba. Esto usa el protocolo de dispositivos vinculados de WhatsApp Web. No es la WhatsApp Business Platform ni la Cloud API.
+Whether it works depends on the account and on the server protocol, so test it with a test account first. This uses the WhatsApp Web linked-device protocol. It is not the WhatsApp Business Platform or the Cloud API.
 
-### Canales y comunidades
+### Channels and communities
 
-`sock.newsletters` tiene `create`, `metadata`, `follow`, `unfollow`, `mute` y `unmute`. `sock.communities` tiene `create`, `linkGroups`, `unlinkGroup` y `subgroups`. Son funciones de WhatsApp Web y dependen de que la cuenta y el servidor admitan la operación.
+`sock.newsletters` has `create`, `metadata`, `follow`, `unfollow`, `mute` and `unmute`. `sock.communities` has `create`, `linkGroups`, `unlinkGroup` and `subgroups`. These are WhatsApp Web features and depend on the account and server allowing the operation.
 
-## Usarlo desde otros lenguajes
+## Using it from other languages
 
-Zyrix corre en Node.js y está escrito en JavaScript, con declaraciones de TypeScript para el editor y la verificación estática. Python, Go, Rust y otros lenguajes no pueden importarlo directamente. Si tu bot está en otro lenguaje, tienes que escribir un cliente en ese lenguaje o correr Zyrix en Node detrás de un servicio con una API de red. Ese puente no viene en este paquete.
+Zyrix runs on Node.js and is written in JavaScript, with TypeScript declarations for your editor and static checking. Python, Go, Rust and other languages cannot import it directly. If your bot is in another language, write a client in that language or run Zyrix on Node behind a service with a network API. That bridge is not part of this package.
 
-Si haces el puente, protégelo con control de acceso y no expongas las claves de la sesión al cliente remoto.
+If you build the bridge, protect it with access control and never expose the session keys to the remote client.
 
-## Lo que todavía no hace
+## What it still doesn't do
 
-- **Publicar estados.** No hay método para publicar texto o media en `status@broadcast`.
-- **Votos de encuestas.** `poll.vote` entrega el dato crudo. Zyrix no lo descifra ni lo relaciona con las opciones de la encuesta.
-- **Migrar sesiones de PN a LID.** Se conservan los alias PN/LID que se conocen, pero las sesiones criptográficas de Signal no se migran de un identificador a otro.
-- **Media vencida.** `downloadMedia` falla si el enlace ya expiró. No pide una nueva carga ni reintenta a través del teléfono vinculado.
-- **Streaming directo de extremo a extremo.** El envío desde `{ stream }` y `downloadMediaToFile` ya evitan cargar el archivo entero en memoria, pero usan temporales locales; no hay API que conecte el stream de red directamente con el de cifrado/descifrado.
-- **Guardado por clave.** Los adaptadores aún escriben el snapshot completo en cada guardado. Normalmente alcanza; si una sesión de mucho uso se acerca al límite BSON, ahí sí vale la pena rediseñar esta persistencia.
-- **Paralelismo de envíos por chat.** Los envíos siguen serializados globalmente para proteger las sesiones Signal compartidas y mantener el orden. No lo convertí a colas por chat: primero necesitaría pruebas de concurrencia con sesiones que se solapan.
+- **Publishing statuses.** There is no method to publish text or media to `status@broadcast`.
+- **Poll votes.** `poll.vote` delivers the raw payload. Zyrix does not decrypt it or map it to the poll options.
+- **Migrating PN to LID sessions.** Known PN/LID aliases are kept, but Signal cryptographic sessions are not migrated from one identifier to another.
+- **Expired media.** `downloadMedia` fails if the link has expired. It does not request a fresh upload or retry through the linked phone.
+- **End-to-end streaming.** Sending from `{ stream }` and `downloadMediaToFile` already avoid loading the whole file into memory, but they use local temporaries; there is no API that connects the network stream directly to encryption or decryption.
+- **Per-key saving.** Adapters still write the whole snapshot on every save. That is usually enough; if a heavily used session approaches the BSON limit, this persistence is worth redesigning.
+- **Per-chat send parallelism.** Sends are still serialised globally to protect shared Signal sessions and keep ordering. It was not converted to per-chat queues: that needs concurrency tests with overlapping sessions first.
 
-## Validación con WhatsApp real
+## How Zyrix compares to Baileys
 
-Zyrix ya se probó manualmente con WhatsApp real. La suite automatizada no repite esas operaciones; este checklist sirve para ampliar la prueba o repetirla al cambiar protocolo/conexión. Hazlo con una cuenta de prueba (no tu cuenta principal):
+Public information as of November 2026; check each project's docs for the current state. The rows where Zyrix loses are listed on purpose — a comparison you cannot trust is not worth reading.
 
-- Emparejar por QR y por código, reiniciar el proceso y ver que la sesión se recupera sin volver a vincular.
-- Escribirle a contactos nuevos y a contactos que reinstalan WhatsApp (`identity.changed`).
-- Probar grupos grandes: enviar, recibir, agregar y quitar participantes, y confirmar que la sender key rota.
-- Mandar y recibir cada tipo de media, y probar ediciones, borrados y reacciones.
-- Cortar la red, matar el proceso y dejar el bot offline un rato, para ver cómo se comporta la reconexión, la cola offline y los recibos de reintento.
-- Fijarte en que no haya errores de descifrado repetidos ni mensajes sin entregar (`status: 'unconfirmed'`).
+| | Zyrix | Baileys |
+| --- | --- | --- |
+| Licence | GPL-3.0-only, because of `libsignal` | MIT |
+| Language | JavaScript with hand-written `.d.ts` | TypeScript, declarations built from source |
+| Session at rest | Encrypted AES-256-GCM + scrypt, atomic write, `0600`, backup, symlink rejection | JSON files; encryption is left to the integrator |
+| Session backends | File, memory, MongoDB, any `{ read, write }`, one document per account | `useMultiFileAuthState` plus community adapters |
+| Connection lifecycle | Built-in launcher: relaunch, reset, deleted-session watcher, signals, pairing code | Assembled by the integrator |
+| Bot runtime | `@axel-dev09/zyrix/kit`: commands, middleware, plugins with hot reload, vocabulary | Not included |
+| Errors | `ZyrixError` with `kind`, `code`, `retryable` | Boom errors |
+| Protocol coverage | No status publishing, raw poll votes, no PN→LID session migration | Status posts, channels and communities |
+| Scale in one process | Whole snapshot per save, sends serialised globally | Key-by-key auth store, `p-queue`, hundreds of sessions reported in production |
+| Validation | 17 unit tests plus a manual checklist on a real account | Jest suite, e2e harness, ~11.6k stars and a large deployment base |
 
-### Licencia
+Read it the honest way: if what you need is the widest protocol surface or a permissive licence today, Baileys is the safer choice. If what you need is a session that is encrypted at rest by default, a connection that recovers on its own and a bot runtime with no framework on top, that is the gap Zyrix fills.
 
-Zyrix se distribuye bajo la licencia GNU GPL v3 (`GPL-3.0-only`). El texto completo está en [`LICENSE`](./LICENSE). Es GPL porque depende de `libsignal`, que es GPL-3.0: cualquier programa que distribuya Zyrix junto con esa dependencia tiene que poder distribuirse bajo una licencia compatible con GPL-3.0.
+## Roadmap
 
-Si solo usas Zyrix para correr un bot propio en tu servidor, sin repartir el programa a otras personas, no tienes que publicar tu código. Esto es una guía general y no asesoría legal. Si necesitas otra licencia, el camino es reemplazar `libsignal` por una implementación de Signal con una licencia que te sirva.
+Where the project is going, not a promise with dates. The order is deliberate, because each item unblocks the next.
 
-### Avisos de terceros
+1. **A permissive licence.** Replace `libsignal` with an in-house Signal implementation so the package can move to MIT or Apache-2.0. Today the GPL dependency is the single biggest obstacle to adoption in commercial and closed-source projects.
+2. **Multi-session scale.** Per-key persistence and per-chat send queues, so one process can host many accounts the way production WhatsApp services need.
+3. **Public proof.** A scheduled end-to-end run against a throwaway account, with the results published: sessions, messages, reconnections, decrypt failures.
+4. **Protocol coverage.** Status publishing, poll vote decryption, PN→LID session migration and re-requesting expired media.
+5. **Tooling.** Declarations generated from source with a drift check in CI, so the types cannot fall behind the code.
+6. **Distribution.** A docs site, English-first documentation (done) and a migration guide for teams coming from other clients.
 
-Las atribuciones y licencias de las dependencias están en [`THIRD_PARTY_NOTICES.md`](./THIRD_PARTY_NOTICES.md).
+## Real WhatsApp validation
+
+Zyrix has been tested manually against real WhatsApp. The automated suite does not repeat those operations; this checklist is for extending the test or repeating it when the protocol or the connection layer changes. Use a test account (not your main one):
+
+- Pair by QR and by code, restart the process and confirm the session recovers without pairing again.
+- Message new contacts and contacts who reinstall WhatsApp (`identity.changed`).
+- Try large groups: send, receive, add and remove participants, and confirm the sender key rotates.
+- Send and receive every media type, and try edits, deletions and reactions.
+- Cut the network, kill the process and leave the bot offline for a while, to see reconnection, the offline queue and retry receipts behave.
+- Watch for repeated decrypt errors and undelivered messages (`status: 'unconfirmed'`).
+
+## Development, licence and notices
+
+Run `npm install`, then `npm test` and `npm run typecheck`. The CI matrix covers Node 18, 20 and 22.
+
+Zyrix is distributed under the GNU GPL v3 (`GPL-3.0-only`). The full text is in [`LICENSE`](./LICENSE). It is GPL because it depends on `libsignal`, which is GPL-3.0: any program that distributes Zyrix together with that dependency must be distributable under a GPL-3.0-compatible licence.
+
+If you only use Zyrix to run your own bot on your server, without distributing the program to other people, you do not have to publish your code. This is general guidance, not legal advice. If you need another licence, the path is replacing `libsignal` with a Signal implementation whose licence works for you.
+
+Third-party attributions and licences are in [`THIRD_PARTY_NOTICES.md`](./THIRD_PARTY_NOTICES.md).
