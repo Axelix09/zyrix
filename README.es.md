@@ -35,6 +35,7 @@ El protocolo de WhatsApp Web cambia sin avisar y Zyrix no tiene relación con Wh
 - [Hoja de ruta](#hoja-de-ruta)
 - [Validación con WhatsApp real](#validación-con-whatsapp-real)
 - [Desarrollo, licencia y avisos](#desarrollo-licencia-y-avisos)
+- [Licencia (documento)](./LICENSING.md)
 
 ## Instalación
 
@@ -465,7 +466,7 @@ Información pública a noviembre de 2026; comprueba la documentación de cada p
 
 | | Zyrix | Baileys |
 | --- | --- | --- |
-| Licencia | GPL-3.0-only, por `libsignal` | MIT |
+| Licencia | GPL-3.0-only, por `libsignal` | MIT, pero instala `libsignal` GPL-3.0 |
 | Lenguaje | JavaScript con `.d.ts` escritos a mano | TypeScript, declaraciones generadas desde el código |
 | Sesión en reposo | AES-256-GCM + scrypt, escritura atómica, `0600`, backup, rechazo de symlinks | Archivos JSON; el cifrado queda en manos de quien integra |
 | Backends de sesión | Archivo, memoria, MongoDB, cualquier `{ read, write }`, un documento por cuenta | `useMultiFileAuthState` más adaptadores de la comunidad |
@@ -482,7 +483,7 @@ Léelo de la forma honesta: si lo que necesitas es la superficie de protocolo m�
 
 Hacia dónde va el proyecto, no una promesa con fechas. El orden es deliberado, porque cada punto desbloquea el siguiente.
 
-1. **Una licencia permisiva.** Reemplazar `libsignal` por una implementación propia de Signal para poder pasar a MIT o Apache-2.0. Hoy la dependencia GPL es el mayor obstáculo para adoptarlo en proyectos comerciales o de código cerrado.
+1. **Una licencia permisiva.** Escribir una implementación propia de Signal para reemplazar `libsignal` y poder pasar a MIT o Apache-2.0. No hay reemplazo directo: toda implementación mantenida del protocolo Signal en JavaScript es GPL-3.0 o más estricta. Hoy la dependencia GPL es el mayor obstáculo para adoptarlo en proyectos comerciales o de código cerrado. La decisión y los criterios para relicenciar están en [`LICENSING.md`](./LICENSING.md).
 2. **Escala multi-sesión.** Persistencia por clave y colas de envío por chat, para que un proceso pueda hospedar muchas cuentas como exigen los servicios de WhatsApp en producción.
 3. **Prueba pública.** Una ejecución e2e programada contra una cuenta desechable, con resultados publicados: sesiones, mensajes, reconexiones y fallos de descifrado.
 4. **Cobertura de protocolo.** Publicar estados, descifrar votos de encuesta, migrar sesiones PN→LID y volver a pedir media vencida.
@@ -508,7 +509,9 @@ Ejecuta `npm install`, luego `npm test` y `npm run typecheck`. La matriz de CI c
 
 Zyrix se distribuye bajo la licencia GNU GPL v3 (`GPL-3.0-only`). El texto completo está en [`LICENSE`](./LICENSE). Es GPL porque depende de `libsignal`, que es GPL-3.0: cualquier programa que distribuya Zyrix junto con esa dependencia tiene que poder distribuirse bajo una licencia compatible con GPL-3.0.
 
-Si solo usas Zyrix para correr un bot propio en tu servidor, sin repartir el programa a otras personas, no tienes que publicar tu código. Esto es una guía general y no asesoría legal. Si necesitas otra licencia, el camino es reemplazar `libsignal` por una implementación de Signal con una licencia que te sirva.
+Si solo usas Zyrix para correr un bot propio en tu servidor, sin repartir el programa a otras personas, no tienes que publicar tu código. Esto es una guía general y no asesoría legal.
+
+Las alternativas se evaluaron y se descartaron: no existe un reemplazo permisivo de `libsignal`, licenciar en doble vía no puede otorgar derechos sobre código GPL ajeno, y declarar el paquete como MIT dejando una dependencia GPL en el camino de ejecución no pasaría una revisión de seguridad. En [`LICENSING.md`](./LICENSING.md) está qué haría falta para relicenciar.
 
 ### Avisos de terceros
 

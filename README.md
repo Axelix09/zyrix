@@ -34,6 +34,7 @@ WhatsApp Web's protocol changes without notice, and Zyrix is not affiliated with
 - [Roadmap](#roadmap)
 - [Real WhatsApp validation](#real-whatsapp-validation)
 - [Development, licence and notices](#development-licence-and-notices)
+- [Licensing](./LICENSING.md)
 
 ## Installation
 
@@ -468,7 +469,7 @@ Public information as of November 2026; check each project's docs for the curren
 
 | | Zyrix | Baileys |
 | --- | --- | --- |
-| Licence | GPL-3.0-only, because of `libsignal` | MIT |
+| Licence | GPL-3.0-only, because of `libsignal` | MIT, but it installs GPL-3.0 `libsignal` |
 | Language | JavaScript with hand-written `.d.ts` | TypeScript, declarations built from source |
 | Session at rest | Encrypted AES-256-GCM + scrypt, atomic write, `0600`, backup, symlink rejection | JSON files; encryption is left to the integrator |
 | Session backends | File, memory, MongoDB, any `{ read, write }`, one document per account | `useMultiFileAuthState` plus community adapters |
@@ -485,7 +486,7 @@ Read it the honest way: if what you need is the widest protocol surface or a per
 
 Where the project is going, not a promise with dates. The order is deliberate, because each item unblocks the next.
 
-1. **A permissive licence.** Replace `libsignal` with an in-house Signal implementation so the package can move to MIT or Apache-2.0. Today the GPL dependency is the single biggest obstacle to adoption in commercial and closed-source projects.
+1. **A permissive licence.** Write an in-house Signal implementation to replace `libsignal`, so the package can move to MIT or Apache-2.0. There is no drop-in alternative: every maintained JavaScript Signal implementation is GPL-3.0 or stricter. Today the GPL dependency is the single biggest obstacle to adoption in commercial and closed-source projects. The decision and the criteria for a relicense are in [`LICENSING.md`](./LICENSING.md).
 2. **Multi-session scale.** Per-key persistence and per-chat send queues, so one process can host many accounts the way production WhatsApp services need.
 3. **Public proof.** A scheduled end-to-end run against a throwaway account, with the results published: sessions, messages, reconnections, decrypt failures.
 4. **Protocol coverage.** Status publishing, poll vote decryption, PN→LID session migration and re-requesting expired media.
@@ -509,6 +510,8 @@ Run `npm install`, then `npm test` and `npm run typecheck`. The CI matrix covers
 
 Zyrix is distributed under the GNU GPL v3 (`GPL-3.0-only`). The full text is in [`LICENSE`](./LICENSE). It is GPL because it depends on `libsignal`, which is GPL-3.0: any program that distributes Zyrix together with that dependency must be distributable under a GPL-3.0-compatible licence.
 
-If you only use Zyrix to run your own bot on your server, without distributing the program to other people, you do not have to publish your code. This is general guidance, not legal advice. If you need another licence, the path is replacing `libsignal` with a Signal implementation whose licence works for you.
+If you only use Zyrix to run your own bot on your server, without distributing the program to other people, you do not have to publish your code. This is general guidance, not legal advice.
+
+The alternatives were evaluated and rejected: there is no permissively licensed replacement for `libsignal`, dual licensing cannot grant rights over someone else's GPL code, and calling the package MIT while a GPL dependency stays on the runtime path would not survive a security review. [`LICENSING.md`](./LICENSING.md) explains what a relicense would require.
 
 Third-party attributions and licences are in [`THIRD_PARTY_NOTICES.md`](./THIRD_PARTY_NOTICES.md).
