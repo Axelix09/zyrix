@@ -14,6 +14,7 @@ const VERSION = 3
 const VERSION_BYTE = (VERSION << 4) | VERSION
 const MAC_LENGTH = 8
 const MAX_COUNTER_JUMP = 2000
+const MAX_SKIPPED_PER_CHAIN = 2000
 const MAX_ARCHIVED_SESSIONS = 40
 const MAX_RECEIVING_CHAINS = 5
 const SENDING = 1
@@ -139,6 +140,12 @@ const fillMessageKeys = (chain, counter) => {
     key = hmacSha256(Buffer.from([2]), key)
   }
   chain.chainKey.key = b64(key)
+  // Several jumps in a row could otherwise pile up keys; drop the oldest ones.
+  const stored = Object.keys(chain.messageKeys)
+  if (stored.length > MAX_SKIPPED_PER_CHAIN) {
+    stored.sort((a, b) => a - b)
+    for (const k of stored.slice(0, stored.length - MAX_SKIPPED_PER_CHAIN)) delete chain.messageKeys[k]
+  }
 }
 
 const macFor = (macKey, senderIdentity, receiverIdentity, serialized) =>
@@ -193,10 +200,11 @@ const parseWhisper = (data) => {
   if (buf.length < 1 + MAC_LENGTH) throw fail('truncated Signal message', 'SIGNAL_MESSAGE_MALFORMED')
   checkVersion(buf[0])
   const body = pbDecode(buf.subarray(1, buf.length - MAC_LENGTH), 'SIGNAL_MESSAGE_MALFORMED')
-  if (!Buffer.isBuffer(body[1]) || !Number.isInteger(body[2]) || !Buffer.isBuffer(body[4])) throw fail('incomplete Signal message', 'SIGNAL_MESSAGE_MALFORMED')
+  if (!Buffer.isBuffer(body[1]) || !Buffer.isBuffer(body[4])) throw fail('incomplete Signal message', 'SIGNAL_MESSAGE_MALFORMED')
+  // Encoders may omit fields whose value is 0.
   return {
     ratchetKey: signalPub(body[1]),
-    counter: body[2],
+    counter: body[2] || 0,
     previousCounter: body[3] || 0,
     ciphertext: body[4],
     serialized: buf.subarray(0, buf.length - MAC_LENGTH),
@@ -209,7 +217,7 @@ const parsePreKeyWhisper = (data) => {
   if (buf.length < 2) throw fail('truncated Signal prekey message', 'SIGNAL_MESSAGE_MALFORMED')
   checkVersion(buf[0])
   const body = pbDecode(buf.subarray(1), 'SIGNAL_MESSAGE_MALFORMED')
-  if (!Buffer.isBuffer(body[2]) || !Buffer.isBuffer(body[3]) || !Buffer.isBuffer(body[4]) || !Number.isInteger(body[6])) {
+  if (!Buffer.isBuffer(body[2]) || !Buffer.isBuffer(body[3]) || !Buffer.isBuffer(body[4])) {
     throw fail('incomplete Signal prekey message', 'SIGNAL_MESSAGE_MALFORMED')
   }
   return {
@@ -218,7 +226,7 @@ const parsePreKeyWhisper = (data) => {
     identityKey: signalPub(body[3]),
     message: body[4],
     registrationId: body[5] || 0,
-    signedPreKeyId: body[6]
+    signedPreKeyId: body[6] || 0
   }
 }
 
@@ -397,12 +405,15 @@ const encrypt = (state, jid, data, hooks) => {
 
 const decryptPreKey = async (storage, id, data) => {
   const message = parsePreKeyWhisper(data)
-  if (!(await storage.isTrustedIdentity(id, message.identityKey))) throw untrusted(id)
+  // The identity key in a prekey message is only authenticated once the inner
+  // message MAC checks out, so trust is decided after decryption: a forged
+  // message must not be able to replace or pin a contact's identity.
   const record = loadRecord(await storage.loadSession(id))
   const ours = storage.getOurIdentity()
   const existing = record._sessions[b64(message.baseKey)]
   if (existing) {
     const { session, plaintext } = decryptWithSession(existing, parseWhisper(message.message), ours.pubKey)
+    if (!(await storage.isTrustedIdentity(id, unb64(session.indexInfo.remoteIdentityKey)))) throw untrusted(id)
     record._sessions[session.indexInfo.baseKey] = session
     await storage.storeSession(id, record)
     return plaintext
@@ -430,6 +441,7 @@ const decryptPreKey = async (storage, id, data) => {
     _chains: {}
   }
   const { session, plaintext } = decryptWithSession(fresh, parseWhisper(message.message), ours.pubKey)
+  if (!(await storage.isTrustedIdentity(id, message.identityKey))) throw untrusted(id)
   putSession(record, session)
   await storage.storeSession(id, record)
   if (message.preKeyId !== undefined) await storage.removePreKey(message.preKeyId)
