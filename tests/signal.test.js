@@ -177,3 +177,74 @@ test('signal: archived sessions are capped', async () => {
   assert.equal(sessions.length, 41, 'one open session plus 40 archived')
   assert.equal(sessions.filter((s) => s.indexInfo.closed === -1).length, 1)
 })
+
+test('signal: a forged prekey message cannot replace or pin a contact identity', async () => {
+  const { alice, bob, aliceJid, bobJid } = await pair()
+  const genuine = await signal.encrypt(alice, bobJid, Buffer.from('hi'))
+  await signal.decrypt(bob, aliceJid, genuine.type, genuine.ciphertext)
+  const id = signal.addrKey(aliceJid)
+  const trusted = Buffer.from(bob.keys.identityKeys[id])
+
+  // An attacker builds a session with its own identity against bob's bundle and
+  // then corrupts the inner MAC: the message must fail before any trust decision.
+  const mallory = party()
+  bob.keys.preKeys[77] = Curve.generateKeyPair()
+  const bundle = {
+    registrationId: bob.creds.registrationId,
+    identityKey: withPrefix(bob.creds.signedIdentityKey.public),
+    signedPreKey: { keyId: bob.creds.signedPreKey.keyId, publicKey: withPrefix(bob.creds.signedPreKey.keyPair.public), signature: bob.creds.signedPreKey.signature },
+    preKey: { keyId: 77, publicKey: withPrefix(bob.keys.preKeys[77].public) }
+  }
+  await signal.injectSession(mallory, bobJid, bundle)
+  const forged = await signal.encrypt(mallory, bobJid, Buffer.from('evil'))
+  const bytes = Buffer.from(forged.ciphertext)
+  bytes[bytes.indexOf(Buffer.from([0x22])) + 3] ^= 1 // flip a byte inside the inner whisper message
+  const events = []
+  await assert.rejects(signal.decrypt(bob, aliceJid, 'pkmsg', bytes, { onIdentityChange: (e) => events.push(e) }))
+  assert.deepEqual(Buffer.from(bob.keys.identityKeys[id]), trusted, 'stored identity unchanged')
+  assert.deepEqual(events, [], 'no identity.changed event for an unauthenticated message')
+  assert.ok(bob.keys.preKeys[77], 'prekey is not consumed by a failed message')
+})
+
+test('signal: messages that omit zero-valued counter fields are accepted', async () => {
+  const { alice, bob, aliceJid, bobJid } = await pair()
+  const hello = await signal.encrypt(alice, bobJid, Buffer.from('hello'))
+  await signal.decrypt(bob, aliceJid, hello.type, hello.ciphertext)
+  // Re-encode bob's first reply without field 2 (counter = 0) and field 3
+  // (previousCounter = 0), as other protobuf encoders may do, and re-MAC it.
+  const { pbDecode, pbEncode } = await import('../src/pb.js')
+  const { hmacSha256, hkdf } = await import('../src/crypto.js')
+  const session = Object.values(bob.keys.sessions[signal.addrKey(aliceJid)]._sessions)[0]
+  const chain = session._chains[session.currentRatchet.ephemeralKeyPair.pubKey]
+  assert.equal(chain.chainKey.counter, -1)
+  const seed = hmacSha256(Buffer.from([1]), Buffer.from(chain.chainKey.key, 'base64'))
+  const macKey = hkdf(seed, 80, Buffer.alloc(32), 'WhisperMessageKeys').subarray(32, 64)
+  const reply = await signal.encrypt(bob, aliceJid, Buffer.from('first reply'))
+  assert.equal(reply.type, 'msg')
+  const body = pbDecode(reply.ciphertext.subarray(1, -8))
+  assert.equal(body[2], 0)
+  const serialized = Buffer.concat([Buffer.from([0x33]), pbEncode([[1, body[1]], [4, body[4]]])])
+  const mac = hmacSha256(
+    Buffer.concat([withPrefix(bob.creds.signedIdentityKey.public), withPrefix(alice.creds.signedIdentityKey.public), serialized]),
+    macKey
+  ).subarray(0, 8)
+  const plain = await signal.decrypt(alice, bobJid, 'msg', Buffer.concat([serialized, mac]))
+  assert.equal(Buffer.from(plain).toString(), 'first reply')
+})
+
+test('signal: skipped message keys are capped per chain', async () => {
+  const { alice, bob, aliceJid, bobJid } = await pair()
+  const sent = []
+  for (let i = 0; i <= 3000; i++) sent.push(await signal.encrypt(alice, bobJid, Buffer.from(String(i))))
+  await signal.decrypt(bob, aliceJid, sent[0].type, sent[0].ciphertext)
+  // Two jumps of ~1500 in the same chain would otherwise store ~3000 keys.
+  await signal.decrypt(bob, aliceJid, sent[1500].type, sent[1500].ciphertext)
+  await signal.decrypt(bob, aliceJid, sent[3000].type, sent[3000].ciphertext)
+  const session = Object.values(bob.keys.sessions[signal.addrKey(aliceJid)]._sessions)[0]
+  const stored = Object.values(session._chains).reduce((n, c) => n + Object.keys(c.messageKeys).length, 0)
+  // Capped at 2000 while filling, then the key for #3000 is consumed.
+  assert.equal(stored, 1999)
+  await assert.rejects(signal.decrypt(bob, aliceJid, sent[1].type, sent[1].ciphertext), 'oldest skipped key was dropped')
+  const late = await signal.decrypt(bob, aliceJid, sent[2999].type, sent[2999].ciphertext)
+  assert.equal(Buffer.from(late).toString(), '2999')
+})
