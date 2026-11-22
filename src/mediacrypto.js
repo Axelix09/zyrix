@@ -155,15 +155,42 @@ const decryptMediaToFile = async (encryptedStream, outputPath, mediaKey, type, {
     await handle.sync()
     await handle.close()
     handle = null
-    // link es atómico y falla si outputPath ya existe; nunca pisa un archivo del usuario.
-    await fs.promises.link(temp, target)
-    await fs.promises.rm(temp, { force: true })
-    return target
+    return publishNoOverwrite(temp, target)
   } catch (error) {
     if (handle) await handle.close().catch(() => {})
     await fs.promises.rm(temp, { force: true }).catch(() => {})
     throw error
   }
+}
+
+// Algunos sistemas de archivos (FAT/FUSE, p. ej. /sdcard en Android) no soportan
+// hardlinks. En ese caso se copia con COPYFILE_EXCL: el destino sigue sin poder pisar
+// un archivo existente y solo se publica si la copia termina.
+const NO_HARDLINK_CODES = new Set(['EPERM', 'EACCES', 'EXDEV', 'ENOSYS', 'EMLINK', 'EOPNOTSUPP', 'ENOTSUP'])
+
+const publishNoOverwrite = async (temp, target, {
+  link = fs.promises.link,
+  copyFile = fs.promises.copyFile,
+  rm = fs.promises.rm
+} = {}) => {
+  try {
+    try {
+      // link es atómico y falla si target ya existe; nunca pisa un archivo del usuario.
+      await link(temp, target)
+    } catch (error) {
+      if (!NO_HARDLINK_CODES.has(error?.code)) throw error
+      await copyFile(temp, target, fs.constants.COPYFILE_EXCL)
+    }
+  } catch (error) {
+    // El temporal contiene el medio ya descifrado: no se deja atrás en ningún fallo.
+    // EEXIST significa que el destino es del usuario y no se toca; cualquier otro
+    // error pudo dejar una copia parcial propia, que se descarta.
+    if (error?.code !== 'EEXIST') await rm(target, { force: true }).catch(() => {})
+    await rm(temp, { force: true }).catch(() => {})
+    throw error
+  }
+  await rm(temp, { force: true })
+  return target
 }
 
 const decryptMedia = (body, mediaKey, type) => {
@@ -178,4 +205,4 @@ const decryptMedia = (body, mediaKey, type) => {
   return aesCbcDecrypt(enc, cipherKey, iv)
 }
 
-export { encryptMedia, encryptMediaFile, encryptMediaFileFromHandle, decryptMedia, decryptMediaToFile }
+export { encryptMedia, encryptMediaFile, encryptMediaFileFromHandle, decryptMedia, decryptMediaToFile, publishNoOverwrite }
