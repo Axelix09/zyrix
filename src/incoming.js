@@ -41,7 +41,7 @@ const safeNormalize = (value) => {
 const toNumber = (value) => (value && typeof value === 'object' && typeof value.toNumber === 'function' ? value.toNumber() : Number(value || 0))
 
 const parseMessage = (event, { self } = {}) => {
-  if (!event || !event.key || !event.message) throw new TypeError('parseMessage requiere un evento messages.upsert')
+  if (!event || !event.key || !event.message) throw new TypeError('parseMessage requires a messages.upsert event')
   const { key } = event
   const body = unwrapMessage(event.message) || {}
   const found = KINDS.find(([field]) => body[field] != null)

@@ -3,7 +3,8 @@ import fsPromises from 'node:fs/promises'
 import path from 'node:path'
 import crypto from 'node:crypto'
 import { Curve, signalPub } from './crypto.js'
-import { parseAuthSnapshot, serializeAuthSnapshot, validateSessionEncryptionKey } from './auth-snapshot.js'
+import { createSnapshotCodec, validateSessionEncryptionKey } from './auth-snapshot.js'
+import { ZyrixError, ErrorKind } from './errors.js'
 
 export const MAX_MONGO_DOCUMENT_BYTES = 16 * 1024 * 1024 - 2048
 
@@ -53,7 +54,7 @@ export function initCreds() {
       signature,
       keyId: 1
     },
-    registrationId: Math.floor(Math.random() * 16380) + 1,
+    registrationId: crypto.randomInt(1, 16381),
     advSecretKey: crypto.randomBytes(32).toString('base64'),
     processedHistoryMessages: [],
     nextPreKeyId: 1,
@@ -71,6 +72,7 @@ const isEncryptedSnapshot = (raw) => {
 export function useFileAuthState(dir, options = {}) {
   const debounceMs = options.debounceMs ?? 300
   const encryptionKey = validateSessionEncryptionKey(options.encryptionKey)
+  const codec = createSnapshotCodec(encryptionKey)
   const sessionDir = path.resolve(dir)
   const statePath = path.join(sessionDir, 'state.json')
   const backupPath = path.join(sessionDir, 'state.json.bak')
@@ -80,7 +82,7 @@ export function useFileAuthState(dir, options = {}) {
     fs.mkdirSync(sessionDir, { recursive: true, mode: 0o700 })
   }
   const dirInfo = fs.lstatSync(sessionDir)
-  if (!dirInfo.isDirectory() || dirInfo.isSymbolicLink()) throw new Error('el directorio de sesión debe ser un directorio real, no un symlink')
+  if (!dirInfo.isDirectory() || dirInfo.isSymbolicLink()) throw new ZyrixError('the session directory must be a real directory, not a symlink', { kind: ErrorKind.AUTH, errorCode: 'SESSION_DIR_INVALID' })
   if (process.platform !== 'win32') fs.chmodSync(sessionDir, 0o700)
   for (const file of [statePath, backupPath]) {
     let info
@@ -88,21 +90,28 @@ export function useFileAuthState(dir, options = {}) {
       if (error.code === 'ENOENT') continue
       throw error
     }
-    if (!info.isFile() || info.isSymbolicLink()) throw new Error(`archivo de sesión inválido o symlink: ${file}`)
+    if (!info.isFile() || info.isSymbolicLink()) throw new ZyrixError(`invalid session file or symlink: ${file}`, { kind: ErrorKind.AUTH, errorCode: 'SESSION_FILE_INVALID' })
     if (process.platform !== 'win32') fs.chmodSync(file, 0o600)
+  }
+  // Un temporal huérfano solo puede venir de un proceso que murió entre escribir y renombrar:
+  // nunca contiene el estado vigente, y si se deja, la escritura con flag 'wx' fallaría.
+  try {
+    const tmpInfo = fs.lstatSync(tempPath)
+    if (tmpInfo.isFile() || tmpInfo.isSymbolicLink()) fs.rmSync(tempPath, { force: true })
+  } catch (error) {
+    if (error.code !== 'ENOENT') throw error
   }
 
   let state = { creds: initCreds(), keys: initKeys() }
   let saveTimer = null
-  let pendingData = null
-  let isSaving = false
+  let dirty = false
   let saveChain = Promise.resolve()
   let shouldMigratePlaintext = false
 
   if (fs.existsSync(statePath)) {
     try {
       const raw = fs.readFileSync(statePath, 'utf8')
-      const parsed = parseAuthSnapshot(raw, encryptionKey)
+      const parsed = codec.parse(raw)
       shouldMigratePlaintext = Boolean(encryptionKey) && !isEncryptedSnapshot(raw)
       state = {
         creds: parsed.creds || initCreds(),
@@ -112,24 +121,28 @@ export function useFileAuthState(dir, options = {}) {
       if (fs.existsSync(backupPath)) {
         try {
           const rawBak = fs.readFileSync(backupPath, 'utf8')
-          const parsedBak = parseAuthSnapshot(rawBak, encryptionKey)
+          const parsedBak = codec.parse(rawBak)
           shouldMigratePlaintext = Boolean(encryptionKey) && !isEncryptedSnapshot(rawBak)
           state = {
             creds: parsedBak.creds || initCreds(),
             keys: initKeys(parsedBak.keys)
           }
         } catch (err) {
-          throw new Error('Archivo de sesión y respaldo corruptos: ' + err.message)
+          throw new ZyrixError('session file and backup are corrupt: ' + err.message, { kind: ErrorKind.AUTH, errorCode: 'SESSION_CORRUPT' })
         }
       } else {
-        throw new Error('Archivo de sesión corrupto sin respaldo disponible')
+        throw new ZyrixError('session file is corrupt and no backup is available', { kind: ErrorKind.AUTH, errorCode: 'SESSION_CORRUPT' })
       }
     }
   }
 
-  const writeDisk = (payload) => {
+  // La serialización (JSON + cifrado) se hace recién al escribir, no en cada save():
+  // save() se llama muchas veces por mensaje y el debounce agrupa todas en una escritura.
+  const writeDisk = () => {
     const write = saveChain.catch(() => {}).then(async () => {
-      isSaving = true
+      if (!dirty) return
+      dirty = false
+      const payload = codec.serialize(state)
       try {
         await fsPromises.writeFile(tempPath, payload, { mode: 0o600, encoding: 'utf8', flag: 'wx' })
         if (process.platform !== 'win32') await fsPromises.chmod(tempPath, 0o600)
@@ -145,12 +158,10 @@ export function useFileAuthState(dir, options = {}) {
         await fsPromises.rename(tempPath, statePath)
         if (process.platform !== 'win32') await fsPromises.chmod(statePath, 0o600)
       } catch (err) {
-        pendingData = payload
+        dirty = true
         await fsPromises.rm(tempPath, { force: true }).catch(() => {})
         if (typeof authObject.onSaveError === 'function') authObject.onSaveError(err)
         throw err
-      } finally {
-        isSaving = false
       }
     })
     saveChain = write
@@ -158,16 +169,11 @@ export function useFileAuthState(dir, options = {}) {
   }
 
   const scheduleSave = () => {
-    pendingData = serializeAuthSnapshot(state, encryptionKey)
+    dirty = true
     if (saveTimer) return
-
-    saveTimer = setTimeout(async () => {
+    saveTimer = setTimeout(() => {
       saveTimer = null
-      if (pendingData) {
-        const toWrite = pendingData
-        pendingData = null
-        await writeDisk(toWrite).catch(() => {})
-      }
+      writeDisk().catch(() => {})
     }, debounceMs)
     if (typeof saveTimer.unref === 'function') saveTimer.unref()
   }
@@ -180,11 +186,7 @@ export function useFileAuthState(dir, options = {}) {
         clearTimeout(saveTimer)
         saveTimer = null
       }
-      if (pendingData) {
-        const toWrite = pendingData
-        pendingData = null
-        await writeDisk(toWrite)
-      }
+      if (dirty) await writeDisk()
       await saveChain
     },
     onSaveError: null
@@ -194,4 +196,3 @@ export function useFileAuthState(dir, options = {}) {
 
   return authObject
 }
-

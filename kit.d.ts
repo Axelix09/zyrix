@@ -42,6 +42,7 @@ export type BotEventMap = {
   'plugin.loaded': (e: { file: string; commands: string[] }) => void
   'plugin.unloaded': (e: { file: string; commands: number }) => void
   'plugin.error': (e: { file: string; error: Error }) => void
+  'plugin.warning': (e: { file?: string; dir?: string; reloads?: number; message: string }) => void
 }
 
 export class Bot {

@@ -6,7 +6,7 @@ const LID_SERVERS = new Set(['lid', 'hosted.lid'])
 const decodeRequired = (value) => {
   const jid = normalizeJid(value)
   const decoded = jidDecode(jid)
-  if (!decoded) throw new TypeError(`JID inválido: ${String(value)}`)
+  if (!decoded) throw new TypeError(`invalid JID: ${String(value)}`)
   return decoded
 }
 
@@ -17,10 +17,10 @@ const jidNormalizedUser = (value) => {
 
 const normalizeJid = (value, defaultServer = 's.whatsapp.net') => {
   if (typeof value === 'number' && Number.isSafeInteger(value)) value = String(value)
-  if (typeof value !== 'string' || !value.trim()) throw new TypeError('se esperaba un JID o identificador no vacío')
+  if (typeof value !== 'string' || !value.trim()) throw new TypeError('expected a non-empty JID or identifier')
   const trimmed = value.trim()
   if (trimmed.includes('@')) return trimmed
-  if (!/^\d+$/.test(trimmed)) throw new TypeError(`identificador sin servidor inválido: ${value}`)
+  if (!/^\d+$/.test(trimmed)) throw new TypeError(`invalid server-less identifier: ${value}`)
   return `${trimmed}@${defaultServer}`
 }
 

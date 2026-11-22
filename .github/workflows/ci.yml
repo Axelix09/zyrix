@@ -12,29 +12,48 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        node: [18, 20, 22]
+        node: [20, 22, 24]
     steps:
       - uses: actions/checkout@v5
 
       - uses: actions/setup-node@v5
         with:
           node-version: ${{ matrix.node }}
+          cache: npm
 
-      - name: Instalar dependencias
-        run: npm install
+      - name: Install dependencies (lockfile)
+        run: npm ci
 
-      - name: Typecheck de las declaraciones públicas
+      - name: Lint
+        run: npm run lint
+
+      - name: Typecheck public declarations
         run: npm run typecheck
 
-      - name: Generar tipos desde el código fuente (detección de deriva)
+      - name: Generate types from source (drift detection)
         run: |
           npm run types:generate
           if [ -n "$(find types-generated -name '*.d.ts' | head -1)" ]; then
-            echo "Declaraciones generadas correctamente"
+            echo "Declarations generated successfully"
           else
-            echo "types:generate no produjo declaraciones" >&2
+            echo "types:generate produced no declarations" >&2
             exit 1
           fi
 
       - name: Tests
         run: npm test
+
+      - name: Coverage report
+        if: matrix.node == 22
+        run: npm run test:coverage
+
+      - name: Verify published package contents
+        if: matrix.node == 22
+        run: |
+          npm pack --dry-run --json > pack.json
+          if node -e "const f=require('./pack.json')[0].files.map(x=>x.path);process.exit(f.some(p=>/^(tests|type-tests|scripts)\//.test(p))?1:0)"; then
+            echo "Package contents OK"
+          else
+            echo "Package includes test or script files" >&2
+            exit 1
+          fi

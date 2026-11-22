@@ -1,6 +1,6 @@
 {
   "name": "@axel-dev09/zyrix",
-  "version": "0.18.0",
+  "version": "0.19.0",
   "description": "WhatsApp Web protocol for Node.js over a WebSocket, with encrypted sessions and a built-in bot runtime",
   "author": "Axelix09",
   "license": "GPL-3.0-only",
@@ -49,10 +49,7 @@
     "LICENSE",
     "LICENSING.md",
     "THIRD_PARTY_NOTICES.md",
-    "THIRD_PARTY_LICENSES",
-    "tests",
-    "scripts/check-test-discovery.mjs",
-    "type-tests"
+    "THIRD_PARTY_LICENSES"
   ],
   "main": "src/index.js",
   "types": "index.d.ts",
@@ -69,13 +66,15 @@
     }
   },
   "engines": {
-    "node": ">=18.17"
+    "node": ">=20"
   },
   "scripts": {
     "test": "node scripts/check-test-discovery.mjs && node --test",
     "test:run": "node --test",
     "typecheck": "tsc --noEmit --strict --module NodeNext --moduleResolution NodeNext --target ES2022 --lib ES2022,DOM --skipLibCheck false type-tests/types-smoke.ts index.d.ts client.d.ts kit.d.ts",
-    "types:generate": "tsc -p tsconfig.types.json"
+    "types:generate": "tsc -p tsconfig.types.json",
+    "lint": "eslint .",
+    "test:coverage": "node --test --experimental-test-coverage"
   },
   "dependencies": {
     "@wppconnect/wa-proto": "2.3000.1049217119",
@@ -85,7 +84,10 @@
   },
   "type": "module",
   "devDependencies": {
+    "@eslint/js": "^9.39.5",
     "@types/node": "^22.13.14",
+    "eslint": "^9.39.5",
+    "globals": "^16.5.0",
     "typescript": "^5.7.3"
   }
 }

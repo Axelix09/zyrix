@@ -38,7 +38,7 @@ const isPluginFile = (name) => /\.(m?js)$/.test(name) && !path.basename(name).st
 class Bot extends EventEmitter {
   constructor(sock, options = {}) {
     super({ captureRejections: true })
-    if (!sock || typeof sock.on !== 'function') throw new ZyrixError('createBot requiere un socket de Zyrix', { kind: ErrorKind.INVALID })
+    if (!sock || typeof sock.on !== 'function') throw new ZyrixError('createBot requires a Zyrix socket', { kind: ErrorKind.INVALID })
     this.vocab = buildVocabulary(options.vocabulary ?? options.vocabulario)
     const { prefix = [], owners = [], ignoreOffline = true, ignoreSelf = true, cooldown = 0, autoRead = false, caseSensitive = false, messages = {} } = rename(options, this.vocab.options)
     this.sock = sock
@@ -54,6 +54,7 @@ class Bot extends EventEmitter {
     this.cooldowns = new Map()
     this.cleanups = new Map()
     this.watchers = new Map()
+    this.reloadCounts = new Map()
     this.currentSource = null
     this.loadQueue = Promise.resolve()
     this.on('error', noop)
@@ -66,12 +67,12 @@ class Bot extends EventEmitter {
   }
 
   command(names, handler, meta = {}) {
-    if (!this.hasCommandRouting) throw new ZyrixError('define `prefix` en createBot (usa \'\' para comandos sin prefijo) antes de registrar comandos', { kind: ErrorKind.INVALID })
+    if (!this.hasCommandRouting) throw new ZyrixError('set `prefix` in createBot (use \'\' for prefix-less commands) before registering commands', { kind: ErrorKind.INVALID })
     const spec = names && typeof names === 'object' && !Array.isArray(names) ? { ...rename(names, this.vocab.command) } : { ...rename(meta, this.vocab.command), names, run: handler }
     const list = toList(spec.commands ?? spec.names ?? spec.command ?? spec.name).map(String).filter(Boolean)
     const run = spec.run ?? spec.handler
-    if (!list.length) throw new ZyrixError('el comando necesita al menos un nombre', { kind: ErrorKind.INVALID })
-    if (typeof run !== 'function') throw new ZyrixError(`el comando ${list[0]} necesita una función run`, { kind: ErrorKind.INVALID })
+    if (!list.length) throw new ZyrixError('the command needs at least one name', { kind: ErrorKind.INVALID })
+    if (typeof run !== 'function') throw new ZyrixError(`the ${list[0]} command needs a run function`, { kind: ErrorKind.INVALID })
     const entry = {
       id: this.norm(list[0]),
       names: list.map((n) => this.norm(n)),
@@ -94,20 +95,20 @@ class Bot extends EventEmitter {
   }
 
   hears(pattern, handler, meta = {}) {
-    if (typeof handler !== 'function') throw new ZyrixError('hears necesita una función', { kind: ErrorKind.INVALID })
+    if (typeof handler !== 'function') throw new ZyrixError('hears needs a function', { kind: ErrorKind.INVALID })
     const opts = rename(meta, this.vocab.hears) || {}
     this.hearers.push({ pattern, run: handler, group: Boolean(opts.group), source: this.currentSource })
     return this
   }
 
   use(fn) {
-    if (typeof fn !== 'function') throw new ZyrixError('use necesita una función (m, next)', { kind: ErrorKind.INVALID })
+    if (typeof fn !== 'function') throw new ZyrixError('use needs a function (m, next)', { kind: ErrorKind.INVALID })
     this.middlewares.push({ fn, source: this.currentSource })
     return this
   }
 
   onUnload(fn) {
-    if (typeof fn !== 'function') throw new ZyrixError('onUnload necesita una función', { kind: ErrorKind.INVALID })
+    if (typeof fn !== 'function') throw new ZyrixError('onUnload needs a function', { kind: ErrorKind.INVALID })
     const key = this.currentSource || '*'
     this.cleanups.set(key, [...(this.cleanups.get(key) || []), fn])
     return this
@@ -185,7 +186,7 @@ class Bot extends EventEmitter {
     try {
       await next()
     } catch (error) {
-      this.sock.logger?.error?.({ err: error }, 'error en el pipeline del bot')
+      this.sock.logger?.error?.({ err: error }, 'error in the bot pipeline')
       this.emit('command.error', { m, error })
     }
   }
@@ -214,7 +215,7 @@ class Bot extends EventEmitter {
       await entry.run(m, rename({ bot: this, sock: this.sock, command: entry, prefix: parsed.prefix, args: parsed.args, text: parsed.argText }, this.vocab.contextOut))
       this.emit('command', { m, command: entry })
     } catch (error) {
-      this.sock.logger?.error?.({ err: error, command: entry.id }, 'error ejecutando comando')
+      this.sock.logger?.error?.({ err: error, command: entry.id }, 'error running command')
       this.emit('command.error', { m, command: entry, error })
       if (this.messages.error) await m.reply(this.messages.error).catch(noop)
     }
@@ -300,7 +301,7 @@ class Bot extends EventEmitter {
       for (const item of def) await this.applyDefinition(item)
       return
     }
-    if (!def || typeof def !== 'object') throw new ZyrixError('el plugin debe exportar una función, un objeto o un arreglo', { kind: ErrorKind.INVALID })
+    if (!def || typeof def !== 'object') throw new ZyrixError('the plugin must export a function, an object or an array', { kind: ErrorKind.INVALID })
     def = rename(rename(def, this.vocab.plugin), this.vocab.command)
     if (typeof def.setup === 'function') await def.setup(this)
     if (typeof def.teardown === 'function') this.onUnload(def.teardown)
@@ -318,7 +319,12 @@ class Bot extends EventEmitter {
     const job = async () => {
       this.unloadPlugin(abs, { silent: true })
       try {
-        const mod = await import(`${pathToFileURL(abs).href}?v=${Date.now()}`)
+        // Node no puede descargar módulos ESM: cada import con un query distinto crea una
+        // instancia nueva que queda en memoria. Se cuentan las recargas para poder avisar.
+        const reloads = (this.reloadCounts.get(abs) || 0) + 1
+        this.reloadCounts.set(abs, reloads)
+        const mod = await import(`${pathToFileURL(abs).href}?v=${Date.now()}-${reloads}`)
+        if (reloads > 1 && reloads % 50 === 0) this.emit('plugin.warning', { file: abs, reloads, message: `plugin reloaded ${reloads} times; every reload keeps the previous module in memory` })
         const def = mod.default !== undefined ? mod.default : { ...mod }
         this.currentSource = abs
         try {
@@ -332,7 +338,7 @@ class Bot extends EventEmitter {
       } catch (error) {
         this.currentSource = null
         this.removeSource(abs)
-        this.sock.logger?.error?.({ err: error, file: abs }, 'no se pudo cargar el plugin')
+        this.sock.logger?.error?.({ err: error, file: abs }, 'could not load the plugin')
         this.emit('plugin.error', { file: abs, error })
         return false
       }
@@ -372,6 +378,12 @@ class Bot extends EventEmitter {
   watch(dir, { recursive = false } = {}) {
     const abs = path.resolve(dir)
     if (this.watchers.has(abs)) return this
+    if (process.env.NODE_ENV === 'production' && !this.watchWarned) {
+      this.watchWarned = true
+      const message = 'plugin hot reload is meant for development: every reload keeps the previous module in memory (ES modules cannot be unloaded)'
+      this.emit('plugin.warning', { dir: abs, message })
+      process.emitWarning(message, { type: 'ZyrixWarning', code: 'PLUGIN_WATCH_IN_PRODUCTION' })
+    }
     const timers = new Map()
     const watchers = []
     const schedule = (file) => {

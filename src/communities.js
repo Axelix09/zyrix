@@ -1,4 +1,5 @@
 import { jidNormalizedUser } from './jid.js'
+import { ZyrixError, ErrorKind } from './errors.js'
 
 export function makeCommunitiesApi(socket, queryRunner) {
   const runQuery = async (query) => {
@@ -11,7 +12,7 @@ export function makeCommunitiesApi(socket, queryRunner) {
   return Object.freeze({
     async create(subject, description = '') {
       if (!subject || typeof subject !== 'string') {
-        throw new Error('El título de la comunidad es obligatorio')
+        throw new ZyrixError('the community title is required', { kind: ErrorKind.INVALID, errorCode: 'COMMUNITY_TITLE_REQUIRED' })
       }
 
       const result = await runQuery({

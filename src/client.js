@@ -18,7 +18,7 @@ export function createClient(options = {}) {
   const auth = options.auth?.state && typeof options.auth.save === 'function'
     ? options.auth
     : { state: options.auth, save: () => {} }
-  const { auth: ignored, version, browser, logger, printQRInTerminal, ...rest } = options
+  const { auth: _ignored, version, browser, logger, printQRInTerminal, ...rest } = options
   const sock = new Socket({
     ...rest,
     auth,
@@ -65,7 +65,7 @@ const albumIndex = new Map()
 
 export async function readMediaStream(sock, message, mediaType) {
   if (!sock || typeof sock.downloadMedia !== 'function') {
-    throw new TypeError('readMediaStream requiere un socket Zyrix')
+    throw new TypeError('readMediaStream requires a Zyrix socket')
   }
   const buffer = Buffer.from(await sock.downloadMedia(message, mediaType))
   return (async function* () { yield buffer })()

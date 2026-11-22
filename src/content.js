@@ -15,13 +15,13 @@ const NON_CONTEXT_TYPES = new Set([
 ])
 
 const assertText = (value, name) => {
-  if (typeof value !== 'string' || !value.trim()) throw new TypeError(`${name} debe ser texto no vacío`)
+  if (typeof value !== 'string' || !value.trim()) throw new TypeError(`${name} must be a non-empty string`)
   return value
 }
 
 const prepareInteractiveImage = async function (options) {
   if (options.image === undefined) return options
-  if (typeof this.uploadMedia !== 'function') throw new TypeError('el socket Zyrix no puede subir imágenes')
+  if (typeof this.uploadMedia !== 'function') throw new TypeError('this Zyrix socket cannot upload images')
   const data = await toBuffer(options.image, this.maxMediaBytes)
   const uploaded = await this.uploadMedia(data, 'image')
   const header = {
@@ -45,7 +45,7 @@ const prepareInteractiveImage = async function (options) {
 }
 
 const asJid = (value) => {
-  if (typeof value !== 'string' || !value.trim()) throw new TypeError('se esperaba un JID')
+  if (typeof value !== 'string' || !value.trim()) throw new TypeError('expected a JID')
   return value.includes('@') ? value : `${value}@s.whatsapp.net`
 }
 
@@ -53,7 +53,7 @@ const quoteInfo = (quoted) => {
   if (!quoted) return {}
   const key = quoted.key || quoted
   if (!key || !quoted.message || typeof quoted.message !== 'object') {
-    throw new TypeError('quoted debe ser un mensaje con key y message')
+    throw new TypeError('quoted must be a message with key and message')
   }
   const stanzaId = typeof key.id === 'string' && key.id ? key.id : randomBytes(16).toString('hex').toUpperCase()
   const context = { stanzaId, quotedMessage: proto.Message.fromObject(quoted.message) }
@@ -66,7 +66,7 @@ const quoteInfo = (quoted) => {
 const quoteKey = (target) => {
   const key = target && (target.key || target)
   if (!key || typeof key.id !== 'string' || !key.id || typeof key.remoteJid !== 'string' || typeof key.fromMe !== 'boolean') {
-    throw new TypeError('el mensaje objetivo debe incluir key.id, key.remoteJid y key.fromMe')
+    throw new TypeError('the target message must include key.id, key.remoteJid and key.fromMe')
   }
   const result = { remoteJid: key.remoteJid, fromMe: key.fromMe, id: key.id }
   if (key.participant) result.participant = key.participant
@@ -84,7 +84,7 @@ const applyContext = (message, options = {}) => {
     context.mentionedJid = options.mentions.map(asJid)
   }
   if (options.expiration !== undefined) {
-    if (!Number.isInteger(options.expiration) || options.expiration < 0) throw new RangeError('expiration debe ser un entero de segundos')
+    if (!Number.isInteger(options.expiration) || options.expiration < 0) throw new RangeError('expiration must be an integer number of seconds')
     if (options.expiration) context.expiration = options.expiration
   }
   if (!Object.keys(context).length) return message
@@ -104,7 +104,7 @@ const applyContext = (message, options = {}) => {
   }
   const type = Object.keys(message).find((key) => key.endsWith('Message') && message[key] != null)
   if (!type || NON_CONTEXT_TYPES.has(type)) return message
-  if (!CONTEXT_TYPES.has(type)) throw new TypeError(`el formato ${type || 'desconocido'} no admite contextInfo en Zyrix`)
+  if (!CONTEXT_TYPES.has(type)) throw new TypeError(`the ${type || 'unknown'} format does not support contextInfo in Zyrix`)
   message[type] = { ...message[type], contextInfo: { ...(message[type].contextInfo || {}), ...context } }
   return message
 }
@@ -148,7 +148,7 @@ const buildRaw = (spec) => {
         }
       }
     case 'contacts': {
-      if (!Array.isArray(spec.contacts) || spec.contacts.length < 1 || spec.contacts.length > 20) throw new RangeError('contacts requiere entre 1 y 20 contactos')
+      if (!Array.isArray(spec.contacts) || spec.contacts.length < 1 || spec.contacts.length > 20) throw new RangeError('contacts requires between 1 and 20 contacts')
       return {
         contactsArrayMessage: {
           displayName: spec.displayName || `${spec.contacts.length} contactos`,
@@ -168,7 +168,7 @@ const buildRaw = (spec) => {
       }
     case 'buttons': {
       const buttons = spec.buttons
-      if (!Array.isArray(buttons) || buttons.length < 1 || buttons.length > 3) throw new RangeError('buttons requiere entre 1 y 3 opciones')
+      if (!Array.isArray(buttons) || buttons.length < 1 || buttons.length > 3) throw new RangeError('buttons requires between 1 and 3 options')
       return {
         buttonsMessage: {
           contentText: assertText(spec.text, 'text'),
@@ -184,7 +184,7 @@ const buildRaw = (spec) => {
     }
     case 'interactive': {
       const buttons = spec.buttons
-      if (!Array.isArray(buttons) || buttons.length < 1 || buttons.length > 10) throw new RangeError('interactive requiere entre 1 y 10 opciones')
+      if (!Array.isArray(buttons) || buttons.length < 1 || buttons.length > 10) throw new RangeError('interactive requires between 1 and 10 options')
       const nativeButtons = buttons.map((button, i) => {
         const name = button.name || 'quick_reply'
         const params = button.params || { display_text: assertText(button.text, `buttons[${i}].text`), id: assertText(button.id, `buttons[${i}].id`) }
@@ -215,9 +215,9 @@ const buildRaw = (spec) => {
       }
     }
     case 'list': {
-      if (!Array.isArray(spec.sections) || !spec.sections.length) throw new TypeError('list requiere al menos una sección')
+      if (!Array.isArray(spec.sections) || !spec.sections.length) throw new TypeError('list requires at least one section')
       const sections = spec.sections.map((section, si) => {
-        if (!Array.isArray(section.rows) || !section.rows.length) throw new TypeError(`sections[${si}] requiere filas`)
+        if (!Array.isArray(section.rows) || !section.rows.length) throw new TypeError(`sections[${si}] requires rows`)
         return {
           title: assertText(section.title, `sections[${si}].title`),
           rows: section.rows.map((row, ri) => ({
@@ -239,18 +239,18 @@ const buildRaw = (spec) => {
       }
     }
     case 'poll': {
-      if (!Array.isArray(spec.options) || spec.options.length < 2 || spec.options.length > 12) throw new RangeError('poll requiere entre 2 y 12 opciones')
+      if (!Array.isArray(spec.options) || spec.options.length < 2 || spec.options.length > 12) throw new RangeError('poll requires between 2 and 12 options')
       const options = spec.options.map((option) => assertText(typeof option === 'string' ? option : option.name, 'poll option'))
-      if (new Set(options).size !== options.length) throw new TypeError('las opciones de poll no pueden repetirse')
+      if (new Set(options).size !== options.length) throw new TypeError('poll options cannot repeat')
       const selectable = spec.selectableOptionsCount ?? 1
-      if (!Number.isInteger(selectable) || selectable < 0 || selectable > options.length) throw new RangeError('selectableOptionsCount fuera de rango')
+      if (!Number.isInteger(selectable) || selectable < 0 || selectable > options.length) throw new RangeError('selectableOptionsCount out of range')
       return { pollCreationMessage: { name: assertText(spec.text, 'text'), options: options.map((optionName) => ({ optionName })), selectableOptionsCount: selectable } }
     }
     case 'location': {
       const lat = Number(spec.latitude)
       const lon = Number(spec.longitude)
       if (!Number.isFinite(lat) || lat < -90 || lat > 90 || !Number.isFinite(lon) || lon < -180 || lon > 180) {
-        throw new RangeError('latitude/longitude fuera de rango')
+        throw new RangeError('latitude/longitude out of range')
       }
       return { locationMessage: { degreesLatitude: lat, degreesLongitude: lon, name: spec.name, address: spec.address, comment: spec.comment } }
     }
@@ -259,7 +259,7 @@ const buildRaw = (spec) => {
     case 'reaction':
       return { reactionMessage: { key: quoteKey(spec.target || spec.quoted), text: typeof spec.text === 'string' ? spec.text : '', senderTimestampMs: Date.now() } }
     default:
-      throw new TypeError(`tipo de contenido no soportado: ${String(type)}`)
+      throw new TypeError(`unsupported content type: ${String(type)}`)
   }
 }
 
@@ -267,9 +267,9 @@ const FORWARD_BLOCKED = new Set(['senderKeyDistributionMessage', 'protocolMessag
 
 const forwardMessage = (source) => {
   const message = unwrapMessage(source && source.message ? source.message : source)
-  if (!message || typeof message !== 'object') throw new TypeError('no hay mensaje que reenviar')
+  if (!message || typeof message !== 'object') throw new TypeError('there is no message to forward')
   let type = Object.keys(message).find((key) => (key === 'conversation' || key.endsWith('Message')) && message[key] != null && !FORWARD_BLOCKED.has(key))
-  if (!type) throw new TypeError('el mensaje no se puede reenviar')
+  if (!type) throw new TypeError('the message cannot be forwarded')
   let out
   if (type === 'conversation') {
     type = 'extendedTextMessage'
@@ -288,7 +288,7 @@ const forwardMessage = (source) => {
 
 const buildMessage = (input, options = {}) => {
   if (typeof input === 'string') input = { type: 'text', text: input }
-  if (!input || typeof input !== 'object' || Array.isArray(input)) throw new TypeError('content debe ser texto o un objeto de mensaje')
+  if (!input || typeof input !== 'object' || Array.isArray(input)) throw new TypeError('content must be a string or a message object')
 
   const settings = { ...input, ...options }
   const raw = input.delete
@@ -312,7 +312,7 @@ const buildMessage = (input, options = {}) => {
     message = { ...message, messageContextInfo: { ...(message.messageContextInfo || {}), ...settings.messageContextInfo } }
   }
   const error = proto.Message.verify(message)
-  if (error) throw new TypeError(`mensaje inválido: ${error}`)
+  if (error) throw new TypeError(`invalid message: ${error}`)
   return message
 }
 
@@ -332,16 +332,16 @@ const forward = (source, options = {}) => buildMessage({ forward: source }, opti
 const vcard = ({ name, number, organization } = {}) => {
   const display = assertText(name, 'name')
   const digits = String(number || '').replace(/\D/g, '')
-  if (!digits) throw new TypeError('number debe contener dígitos')
+  if (!digits) throw new TypeError('number must contain digits')
   const lines = ['BEGIN:VCARD', 'VERSION:3.0', `N:;${display};;;`, `FN:${display}`]
   if (organization) lines.push(`ORG:${organization};`)
   lines.push(`TEL;type=CELL;type=VOICE;waid=${digits}:+${digits}`, 'END:VCARD')
   return lines.join('\n')
 }
 const stickerPack = (options = {}) => {
-  if (!Array.isArray(options.stickers) || options.stickers.length < 1 || options.stickers.length > 100) throw new RangeError('stickers requiere entre 1 y 100 elementos')
+  if (!Array.isArray(options.stickers) || options.stickers.length < 1 || options.stickers.length > 100) throw new RangeError('stickers requires between 1 and 100 items')
   const stickers = options.stickers.map((sticker, i) => {
-    if (!sticker || typeof sticker.fileName !== 'string' || !sticker.fileName.trim()) throw new TypeError(`stickers[${i}].fileName inválido`)
+    if (!sticker || typeof sticker.fileName !== 'string' || !sticker.fileName.trim()) throw new TypeError(`invalid stickers[${i}].fileName`)
     return {
       fileName: sticker.fileName,
       isAnimated: Boolean(sticker.isAnimated),
@@ -458,7 +458,7 @@ const socketMethods = {
           params: { title: button.title || 'Ver opciones', sections: button.sections || [] }
         }
         if (button.type === 'inapp_signup') return { name: 'inapp_signup', text: button.text, params: {} }
-        throw new TypeError(`tipo de botón desconocido: ${button.type}`)
+        throw new TypeError(`unknown button type: ${button.type}`)
       })
     })
   },

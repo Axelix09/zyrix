@@ -1,5 +1,6 @@
 import fs from 'fs'
 import { jsonReplacer, jsonReviver } from './util.js'
+import { ZyrixError, ErrorKind } from './errors.js'
 
 const trim = (map, max) => {
   while (map.size > max) map.delete(map.keys().next().value)
@@ -11,7 +12,7 @@ const touch = (map, key, value) => {
 }
 
 const createStore = (socket, { maxMessagesPerChat = 200, maxChats = 1000, maxContacts = 5000 } = {}) => {
-  if (!socket || typeof socket.on !== 'function') throw new TypeError('createStore requiere un socket de Zyrix')
+  if (!socket || typeof socket.on !== 'function') throw new TypeError('createStore requires a Zyrix socket')
   const messages = new Map()
   const chats = new Map()
   const contacts = new Map()
@@ -101,7 +102,7 @@ const createStore = (socket, { maxMessagesPerChat = 200, maxChats = 1000, maxCon
       }
     },
     fromJSON(data) {
-      if (!data || typeof data !== 'object') throw new TypeError('datos de store inválidos')
+      if (!data || typeof data !== 'object') throw new TypeError('invalid store data')
       for (const [jid, list] of data.messages || []) {
         const map = new Map()
         for (const event of list) map.set(event.key.id, event)
@@ -130,7 +131,6 @@ const createStore = (socket, { maxMessagesPerChat = 200, maxChats = 1000, maxCon
 
 const makeInMemoryStore = (options = {}) => {
   let store
-  let proxy
   const facade = {
     bind(socket) {
       store?.unbind()
@@ -142,11 +142,11 @@ const makeInMemoryStore = (options = {}) => {
       store = undefined
     }
   }
-  proxy = new Proxy(facade, {
+  const proxy = new Proxy(facade, {
     get(target, property) {
       if (property in target) return target[property]
       return (...args) => {
-        if (!store) throw new Error('makeInMemoryStore debe enlazarse con store.bind(socket) antes de usarse')
+        if (!store) throw new ZyrixError('makeInMemoryStore must be bound with store.bind(socket) before use', { kind: ErrorKind.NOT_READY, errorCode: 'STORE_NOT_BOUND' })
         const value = store[property]
         if (typeof value !== 'function') return value
         return value.apply(store, args)

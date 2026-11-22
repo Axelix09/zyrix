@@ -69,8 +69,8 @@ class Launcher extends EventEmitter {
       on,
       ...socketOptions
     } = options
-    if (setup !== undefined && typeof setup !== 'function') throw new ZyrixError('setup debe ser una función', { kind: ErrorKind.INVALID })
-    if (typeof connector !== 'function') throw new ZyrixError('connector debe ser una función', { kind: ErrorKind.INVALID })
+    if (setup !== undefined && typeof setup !== 'function') throw new ZyrixError('setup must be a function', { kind: ErrorKind.INVALID })
+    if (typeof connector !== 'function') throw new ZyrixError('connector must be a function', { kind: ErrorKind.INVALID })
     this.session = session
     this.sessionEncryptionKey = sessionEncryptionKey
     this.phoneOption = phoneNumber
@@ -135,7 +135,7 @@ class Launcher extends EventEmitter {
     const value = typeof option === 'function' ? await option() : option
     if (value === undefined || value === null || value === '') return null
     const phone = parsePhoneNumber(value)
-    if (!phone) throw new ZyrixError('el número de teléfono debe tener entre 8 y 15 dígitos, con código de país', { kind: ErrorKind.INVALID })
+    if (!phone) throw new ZyrixError('the phone number must have between 8 and 15 digits, including the country code', { kind: ErrorKind.INVALID })
     return phone
   }
 
@@ -269,22 +269,33 @@ class Launcher extends EventEmitter {
     if (['ECONNRESET', 'ECONNREFUSED', 'ECONNABORTED', 'ETIMEDOUT', 'ENETUNREACH', 'EHOSTUNREACH', 'EPIPE'].includes(code)) {
       return this.emit('issue', { type: 'network', code, name: error?.name, error })
     }
-    if (Number(code) === 1006 || /WebSocket cerr[oó] antes del handshake|closed.*before.*handshake/i.test(message)) {
-      return this.emit('issue', { type: 'websocket-handshake', code: 1006, name: error?.name, error })
+    // Se clasifica por errorCode (estable) y no por el texto del mensaje, que puede cambiar.
+    switch (error?.errorCode) {
+      case 'WEBSOCKET_CLOSED_BEFORE_HANDSHAKE':
+        return this.emit('issue', { type: 'websocket-handshake', code: 1006, name: error?.name, error })
+      case 'SENDER_KEY_MISSING':
+        return this.noteSenderKeyMiss()
+      case 'STREAM_ERROR': {
+        let streamCode = Number(error.code)
+        if (!streamCode) {
+          try {
+            streamCode = Number(JSON.parse(/^WhatsApp stream error: (.+)$/.exec(message)[1]).code)
+          } catch {}
+        }
+        return this.emit('issue', { type: 'stream-error', code: streamCode, name: reasonName(streamCode), error })
+      }
+      case 'CONNECTION_REJECTED': {
+        const rejected = Number(error.code ?? /\((\d+)\)/.exec(message)?.[1])
+        return this.emit('issue', { type: 'connection-rejected', code: rejected, name: reasonName(rejected), error })
+      }
+      case 'CONNECTION_IDLE':
+      case 'KEEPALIVE_FAILED':
+        return this.emit('issue', { type: 'idle', error })
+      case 'WEBSOCKET_OPEN_TIMEOUT':
+        return this.emit('issue', { type: 'error', error })
     }
-    if (/sin sender key/.test(message)) return this.noteSenderKeyMiss()
+    if (Number(code) === 1006) return this.emit('issue', { type: 'websocket-handshake', code: 1006, name: error?.name, error })
     if (isZyrixError(error, ErrorKind.CLOSED)) return
-    const stream = /^WhatsApp stream error: (.+)$/.exec(message)
-    if (stream) {
-      let code
-      try {
-        code = Number(JSON.parse(stream[1]).code)
-      } catch {}
-      return this.emit('issue', { type: 'stream-error', code, name: reasonName(code), error })
-    }
-    const rejected = /rechazó la conexión \((\d+)\)/.exec(message)
-    if (rejected) return this.emit('issue', { type: 'connection-rejected', code: Number(rejected[1]), name: reasonName(Number(rejected[1])), error })
-    if (/sin actividad|keepalive/.test(message)) return this.emit('issue', { type: 'idle', error })
     if (isZyrixError(error, ErrorKind.TIMEOUT)) return this.emit('issue', { type: 'timeout', error })
     this.emit('issue', { type: 'error', error })
   }
@@ -333,7 +344,7 @@ class Launcher extends EventEmitter {
     this.emit('fatal', info)
     const first = this.first
     this.first = null
-    first?.reject(new ZyrixError(`Zyrix no pudo mantener la conexión (${reason})`, { kind: ErrorKind.CLOSED, code: extra.code, cause: error ?? undefined, details: info }))
+    first?.reject(new ZyrixError(`Zyrix could not keep the connection (${reason})`, { kind: ErrorKind.CLOSED, code: extra.code, cause: error ?? undefined, details: info }))
   }
 
   hookSignals() {

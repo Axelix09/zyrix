@@ -91,7 +91,7 @@ const ackAttrs = (node) => {
 }
 
 const nonNegative = (value, name) => {
-  if (!Number.isFinite(value) || value < 0) throw new TypeError(`${name} debe ser un número no negativo`)
+  if (!Number.isFinite(value) || value < 0) throw new TypeError(`${name} must be a non-negative number`)
 }
 
 class Socket extends EventEmitter {
@@ -119,16 +119,16 @@ class Socket extends EventEmitter {
   } = {}) {
     super({ captureRejections: true })
     if (!auth || !auth.state || !auth.state.creds || !auth.state.keys || typeof auth.save !== 'function') {
-      throw new TypeError('auth debe incluir state.creds, state.keys y una función save()')
+      throw new TypeError('auth must include state.creds, state.keys and a save() function')
     }
     if (version && (!Array.isArray(version) || version.length !== 3 || version.some((n) => !Number.isInteger(n) || n < 0))) {
-      throw new TypeError('version debe ser un arreglo de tres enteros no negativos')
+      throw new TypeError('version must be an array of three non-negative integers')
     }
-    if (!Number.isSafeInteger(maxMediaBytes) || maxMediaBytes < 1) throw new TypeError('maxMediaBytes debe ser un entero positivo')
-    if (!Number.isSafeInteger(maxFileBytes) || maxFileBytes < 1) throw new TypeError('maxFileBytes debe ser un entero positivo')
-    if (!Array.isArray(browser) || browser.length < 2) throw new TypeError('browser debe ser [sistema, navegador, versión]')
-    if (getMessage !== undefined && typeof getMessage !== 'function') throw new TypeError('getMessage debe ser una función')
-    if (!['update', 'tofu'].includes(trustPolicy) && typeof trustPolicy !== 'function') throw new TypeError("trustPolicy debe ser 'update', 'tofu' o una función")
+    if (!Number.isSafeInteger(maxMediaBytes) || maxMediaBytes < 1) throw new TypeError('maxMediaBytes must be a positive integer')
+    if (!Number.isSafeInteger(maxFileBytes) || maxFileBytes < 1) throw new TypeError('maxFileBytes must be a positive integer')
+    if (!Array.isArray(browser) || browser.length < 2) throw new TypeError('browser must be [os, browser, version]')
+    if (getMessage !== undefined && typeof getMessage !== 'function') throw new TypeError('getMessage must be a function')
+    if (!['update', 'tofu'].includes(trustPolicy) && typeof trustPolicy !== 'function') throw new TypeError("trustPolicy must be 'update', 'tofu' or a function")
     nonNegative(minSendIntervalMs, 'minSendIntervalMs')
     nonNegative(keepAliveIntervalMs, 'keepAliveIntervalMs')
     nonNegative(queryTimeoutMs, 'queryTimeoutMs')
@@ -173,7 +173,19 @@ class Socket extends EventEmitter {
     this.fastReconnect = false
     this.connectionState = { connection: 'close' }
     if (typeof auth.flush === 'function' && !auth.onSaveError) auth.onSaveError = (e) => this.emit('error', e)
-    this.on('error', () => {})
+    this.loggerConfigured = Boolean(logger)
+    this.reportedErrors = new TTLCache({ max: 200, ttl: 60000 })
+    // Sin un listener propio, EventEmitter tiraría el proceso en cada 'error'. Este listener
+    // evita eso pero ya no descarta el error: lo manda al logger, o a process.emitWarning
+    // (una vez por minuto por mensaje) si no hay logger configurado.
+    this.on('error', (err) => {
+      if (this.listenerCount('error') > 1) return
+      if (this.loggerConfigured) return this.logger.error({ err }, err?.message || String(err))
+      const key = String(err?.code || err?.message || err)
+      if (this.reportedErrors.has(key)) return
+      this.reportedErrors.set(key, true)
+      process.emitWarning(err?.message || String(err), { type: 'ZyrixWarning', code: typeof err?.code === 'string' ? err.code : undefined, detail: 'Register sock.on(\'error\', ...) or pass the logger option to handle these errors.' })
+    })
     this.on('messages.upsert', (event) => this.emitDerived(event))
   }
 
@@ -227,12 +239,12 @@ class Socket extends EventEmitter {
       const onClose = (info) => {
         if (info && info.reconnecting === false) {
           cleanup()
-          reject(new ZyrixError('la conexión se cerró sin posibilidad de reconexión', { kind: ErrorKind.CLOSED }))
+          reject(new ZyrixError('the connection closed with no way to reconnect', { kind: ErrorKind.CLOSED }))
         }
       }
       const timer = setTimeout(() => {
         cleanup()
-        reject(new ZyrixError('timeout esperando la conexión', { kind: ErrorKind.TIMEOUT }))
+        reject(new ZyrixError('timed out waiting for the connection', { kind: ErrorKind.TIMEOUT }))
       }, timeout)
       this.on('open', onOpen)
       this.on('close', onClose)
@@ -378,25 +390,25 @@ class Socket extends EventEmitter {
       this.emit('node', node)
       this.onNode(node)
     } catch (e) {
-      this.logger.error({ err: e, tag: node.tag }, 'error procesando nodo')
+      this.logger.error({ err: e, tag: node.tag }, 'error processing node')
       this.emit('error', e)
     }
   }
 
   sendNode(node) {
-    if (!this.handshakeDone) throw new ZyrixError('la sesión de Zyrix aún no está lista', { kind: ErrorKind.NOT_READY })
+    if (!this.handshakeDone) throw new ZyrixError('the Zyrix session is not ready yet', { kind: ErrorKind.NOT_READY })
     this.transport.send(this.noise.encrypt(encodeNode(node)))
   }
 
   query(node, timeout = this.queryTimeoutMs) {
-    if (!Number.isFinite(timeout) || timeout <= 0) return Promise.reject(new TypeError('timeout debe ser un número positivo'))
+    if (!Number.isFinite(timeout) || timeout <= 0) return Promise.reject(new TypeError('timeout must be a positive number'))
     node.attrs = node.attrs || {}
     node.attrs.id = node.attrs.id || `${this.prefix}-${++this.counter}`
     const id = node.attrs.id
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
         this.pending.delete(id)
-        reject(new ZyrixError('timeout', { kind: ErrorKind.TIMEOUT }))
+        reject(new ZyrixError('query timed out', { kind: ErrorKind.TIMEOUT }))
       }, timeout)
       this.pending.set(id, { resolve, reject, timer })
       try {
@@ -418,7 +430,7 @@ class Socket extends EventEmitter {
       if (type === 'error' && node.tag !== 'ack') {
         const err = getChild(node, 'error')
         const code = err ? err.attrs.code : ''
-        waiting.reject(new ZyrixError('error ' + code, { kind: ErrorKind.REJECTED, code: Number(code) || undefined }))
+        waiting.reject(new ZyrixError('query error ' + code, { kind: ErrorKind.REJECTED, code: Number(code) || undefined }))
       } else waiting.resolve(node)
       if (node.tag === 'iq' && getChild(node, 'pair-success')) this.enqueue(() => this.onPairSuccess(node))
       return
@@ -527,12 +539,12 @@ class Socket extends EventEmitter {
     const { creds } = this.auth.state
     const hmac = proto.ADVSignedDeviceIdentityHMAC.decode(identityNode.content)
     const expected = hmacSha256(Buffer.from(hmac.details), Buffer.from(creds.advSecretKey, 'base64'))
-    if (!expected.equals(Buffer.from(hmac.hmac))) throw new Error('hmac invalido')
+    if (!expected.equals(Buffer.from(hmac.hmac))) throw new ZyrixError('invalid pairing HMAC', { kind: ErrorKind.AUTH, errorCode: 'PAIRING_HMAC_INVALID' })
     const account = proto.ADVSignedDeviceIdentity.decode(hmac.details)
     const details = Buffer.from(account.details)
     const accountKey = Buffer.from(account.accountSignatureKey)
     const accountMsg = Buffer.concat([Buffer.from([6, 0]), details, creds.signedIdentityKey.public])
-    if (!Curve.verify(accountKey, accountMsg, account.accountSignature)) throw new Error('firma de cuenta invalida')
+    if (!Curve.verify(accountKey, accountMsg, account.accountSignature)) throw new ZyrixError('invalid account signature', { kind: ErrorKind.AUTH, errorCode: 'PAIRING_SIGNATURE_INVALID' })
     const deviceMsg = Buffer.concat([Buffer.from([6, 1]), details, creds.signedIdentityKey.public, accountKey])
     account.deviceSignature = Curve.sign(creds.signedIdentityKey.private, deviceMsg)
     const deviceIdentity = proto.ADVDeviceIdentity.decode(details)
@@ -621,7 +633,7 @@ class Socket extends EventEmitter {
     const interval = this.keepAliveIntervalMs
     this.keepAlive = setInterval(() => {
       if (Date.now() - this.lastRecv > interval * 3 + 5000) {
-        this.emit('error', new Error('conexión sin actividad: se reinicia'))
+        this.emit('error', new ZyrixError('connection idle: restarting', { kind: ErrorKind.CLOSED, errorCode: 'CONNECTION_IDLE' }))
         this.transport?.close()
         return
       }
@@ -631,7 +643,7 @@ class Socket extends EventEmitter {
         })
         .catch(() => {
           if (++this.pingFailures >= 2) {
-            this.emit('error', new Error('keepalive fallido: se reinicia la conexión'))
+            this.emit('error', new ZyrixError('keepalive failed: restarting the connection', { kind: ErrorKind.CLOSED, errorCode: 'KEEPALIVE_FAILED' }))
             this.transport?.close()
           }
         })
@@ -682,7 +694,7 @@ class Socket extends EventEmitter {
     }
     if (isTerminalReason(reason)) return this.terminate(reason)
     this.pendingReason = reason
-    this.emit('error', new Error(`WhatsApp rechazó la conexión (${node.attrs.reason})`))
+    this.emit('error', new ZyrixError(`WhatsApp rejected the connection (${node.attrs.reason})`, { kind: ErrorKind.REJECTED, errorCode: 'CONNECTION_REJECTED', code: Number(node.attrs.reason) || undefined }))
     this.transport.close()
   }
 
@@ -704,7 +716,7 @@ class Socket extends EventEmitter {
     }
     if (isTerminalReason(code)) return this.terminate(code)
     this.pendingReason = code || undefined
-    this.emit('error', new Error(`WhatsApp stream error: ${JSON.stringify(attrs)}`))
+    this.emit('error', new ZyrixError(`WhatsApp stream error: ${JSON.stringify(attrs)}`, { kind: ErrorKind.CLOSED, errorCode: 'STREAM_ERROR', code: code || undefined }))
     this.transport.close()
   }
 
@@ -713,7 +725,7 @@ class Socket extends EventEmitter {
     clearTimeout(this.qrTimer)
     for (const p of this.pending.values()) {
       clearTimeout(p.timer)
-      p.reject(new ZyrixError('conexion cerrada', { kind: ErrorKind.CLOSED }))
+      p.reject(new ZyrixError('connection closed', { kind: ErrorKind.CLOSED }))
     }
     this.pending.clear()
     this.pairingMode = false
@@ -741,7 +753,7 @@ class Socket extends EventEmitter {
   }
 
   sendPresence(to, state) {
-    if (state !== 'composing' && state !== 'paused' && state !== 'recording') throw new TypeError('state debe ser composing, recording o paused')
+    if (state !== 'composing' && state !== 'paused' && state !== 'recording') throw new TypeError('state must be composing, recording or paused')
     return this.sendPresenceUpdate(state, to)
   }
 

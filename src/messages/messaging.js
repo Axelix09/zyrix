@@ -4,11 +4,11 @@ import { getChild, getChildren, jidDecode, jidEncode, isJidGroup } from '../bina
 import * as signal from '../signal.js'
 import * as senderkey from '../senderkey.js'
 import { S_WHATSAPP_NET as S, be, genId, pad, unpad, encodeAccount } from '../util.js'
-import { buildMessage, REVOKE_TYPE, EDIT_TYPE } from '../content.js'
+import { buildMessage } from '../content.js'
 import { ZyrixError, ErrorKind } from '../errors.js'
-import { normalizeJid, jidNormalizedUser, isJidLid, isJidPN, sameUser as sameIdentity, makeIdentityMap } from '../jid.js'
+import { jidNormalizedUser, isJidLid, isJidPN, sameUser as sameIdentity, makeIdentityMap } from '../jid.js'
 
-import { normalize, normalizeQuoted, userJid, sameUser, participantFromNode, parseGroupMetadata, nodeText, messageType, editAttribute, ackError, encodeMsg, ackAttrs, MAX_RETRIES, SKIP } from './shared.js'
+import { normalize, normalizeQuoted, userJid, sameUser, messageType, editAttribute, ackError, encodeMsg, ackAttrs, MAX_RETRIES, SKIP } from './shared.js'
 
 export default {
   async getDevices(jids) {
@@ -186,7 +186,7 @@ export default {
         }
         const wrapped = sameIdentity(target, meJid, identities.map) ? { deviceSentMessage: { destinationJid: chat, message: carrier } } : carrier
         const r = await this.participantNodes([target], () => pad(encodeMsg(wrapped)), extra)
-        if (!r.nodes.length) throw new Error('sin sesion con el dispositivo')
+        if (!r.nodes.length) throw new ZyrixError('no session with the device', { kind: ErrorKind.NO_SESSION, errorCode: 'DEVICE_SESSION_MISSING' })
         const enc = r.nodes[0].content[0]
         if (retryCount) enc.attrs.count = String(retryCount)
         content.push(enc)
@@ -222,11 +222,11 @@ export default {
       const r = await this.participantNodes(devices, (j) => (sameUser(j, meJid, identities.map) ? wrapped : plain), extra)
       identity = r.identity
       if (!onlyDevice && !sameUser(chat, meJid, identities.map) && !r.nodes.some((n) => !sameUser(n.attrs.jid, meJid, identities.map))) {
-        throw new Error(`no se pudo establecer sesión con ${chat}: el destinatario no tiene dispositivos o falló la descarga de claves`)
+        throw new ZyrixError(`could not establish a session with ${chat}: the recipient has no devices or the key download failed`, { kind: ErrorKind.NO_SESSION, errorCode: 'RECIPIENT_SESSION_FAILED' })
       }
       if (r.missing.length) this.emit('send.warning', { id, chat, missingDevices: r.missing })
       if (onlyDevice) {
-        if (!r.nodes.length) throw new Error('sin sesion con el dispositivo')
+        if (!r.nodes.length) throw new ZyrixError('no session with the device', { kind: ErrorKind.NO_SESSION, errorCode: 'DEVICE_SESSION_MISSING' })
         content.push(...r.nodes[0].content)
         if (retryCount) content[content.length - 1].attrs.count = String(retryCount)
         stanza.attrs.to = onlyDevice
@@ -400,14 +400,14 @@ export default {
         message = proto.Message.decode(unpad(Buffer.from(plain)))
       } catch (e) {
         failed = true
-        this.emit('error', new Error(`${id} ${type}: ${e.message}`))
+        this.emit('error', new ZyrixError(`${id} ${type}: ${e.message}`, { kind: e?.kind && e.kind !== 'unknown' ? e.kind : ErrorKind.DECRYPT, errorCode: e?.errorCode || 'DECRYPT_FAILED', cause: e, details: { id, type } }))
         continue
       }
       try {
         if (this.handleDecrypted(node, message)) emitted++
       } catch (e) {
-        const error = new Error(`${id} ${type} processing: ${e.message}`)
-        this.logger.error({ err: error, messageId: id }, 'error procesando mensaje descifrado')
+        const error = new ZyrixError(`${id} ${type} processing: ${e.message}`, { kind: ErrorKind.INVALID, errorCode: 'MESSAGE_PROCESSING_FAILED', cause: e, details: { id, type } })
+        this.logger.error({ err: error, messageId: id }, 'error processing decrypted message')
         this.emit('error', error)
       } finally {
         this.seen.set(seenKey, true)
