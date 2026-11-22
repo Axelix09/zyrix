@@ -1,5 +1,6 @@
 import fs from 'fs'
 import https from 'https'
+import { ZyrixError, ErrorKind } from './errors.js'
 
 const postFile = (host, pathname, filePath, size, timeoutMs = 120000) =>
   new Promise((resolve, reject) => {
@@ -20,7 +21,7 @@ const postFile = (host, pathname, filePath, size, timeoutMs = 120000) =>
         res.on('data', (chunk) => {
           total += chunk.length
           if (total > 64 * 1024) {
-            res.destroy(new Error('respuesta de subida de media demasiado grande'))
+            res.destroy(new ZyrixError('media upload response too large', { kind: ErrorKind.MEDIA, errorCode: 'UPLOAD_RESPONSE_TOO_LARGE' }))
             return
           }
           chunks.push(chunk)
@@ -30,7 +31,7 @@ const postFile = (host, pathname, filePath, size, timeoutMs = 120000) =>
       }
     )
     req.on('error', reject)
-    req.setTimeout(timeoutMs, () => req.destroy(new Error('tiempo de espera agotado subiendo el media')))
+    req.setTimeout(timeoutMs, () => req.destroy(new ZyrixError('timed out uploading media', { kind: ErrorKind.TIMEOUT, errorCode: 'UPLOAD_TIMEOUT' })))
     const input = fs.createReadStream(filePath)
     input.on('error', (error) => req.destroy(error))
     input.pipe(req)

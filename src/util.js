@@ -1,8 +1,11 @@
 import crypto from 'crypto'
 import fs from 'fs'
-import dns from 'node:dns/promises'
+import dns from 'node:dns'
+import http from 'node:http'
+import https from 'node:https'
 import net from 'node:net'
 import { proto } from './proto.js'
+import { ZyrixError, ErrorKind } from './errors.js'
 
 const S_WHATSAPP_NET = 's.whatsapp.net'
 
@@ -97,7 +100,7 @@ const readStreamLimited = async (stream, limit) => {
   let total = 0
   for await (const chunk of stream) {
     total += chunk.length
-    if (total > limit) throw new RangeError(`el media supera el límite de ${limit} bytes`)
+    if (total > limit) throw new RangeError(`media exceeds the ${limit}-byte limit`)
     chunks.push(Buffer.from(chunk))
   }
   return Buffer.concat(chunks, total)
@@ -109,7 +112,7 @@ const DATA_URL = /^data:([^;,]+)?(;base64)?,/i
 
 const decodeDataUrl = (value) => {
   const match = DATA_URL.exec(value)
-  if (!match) throw new TypeError('data URL inválida')
+  if (!match) throw new TypeError('invalid data URL')
   const payload = value.slice(match[0].length)
   return match[2] ? Buffer.from(payload, 'base64') : Buffer.from(decodeURIComponent(payload), 'binary')
 }
@@ -155,54 +158,99 @@ const isPublicAddress = (ip) => {
   // Solo direcciones IPv6 globales unicast; descarta loopback, ULA, link-local y rangos especiales.
   return /^2|^3/.test(normalized) && !normalized.startsWith('2001:db8:')
 }
-const assertPublicMediaUrl = async (value) => {
+const assertMediaUrlShape = (value) => {
   const url = value instanceof URL ? value : new URL(value)
   if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password || !['', '80', '443'].includes(url.port)) {
-    throw new Error('URL de media no permitida: solo HTTP(S) público en puertos 80/443')
+    throw new ZyrixError('media URL not allowed: only public HTTP(S) on ports 80/443', { kind: ErrorKind.MEDIA, errorCode: 'MEDIA_URL_BLOCKED' })
   }
   const host = url.hostname.replace(/^\[|\]$/g, '').toLowerCase()
   if (host === 'localhost' || host.endsWith('.localhost') || host.endsWith('.local') || host.endsWith('.internal') || host.endsWith('.test')) {
-    throw new Error('URL de media no permitida: host local')
+    throw new ZyrixError('media URL not allowed: local host', { kind: ErrorKind.MEDIA, errorCode: 'MEDIA_URL_BLOCKED' })
   }
-  const addresses = net.isIP(host) ? [{ address: host }] : await dns.lookup(host, { all: true, verbatim: true })
-  if (!addresses.length || addresses.some(({ address }) => !isPublicAddress(address))) {
-    throw new Error('URL de media no permitida: el host no resuelve exclusivamente a IPs públicas')
+  if (net.isIP(host) && !isPublicAddress(host)) {
+    throw new ZyrixError('media URL not allowed: the host does not resolve exclusively to public IPs', { kind: ErrorKind.MEDIA, errorCode: 'MEDIA_URL_BLOCKED' })
   }
   return url
 }
+
+// Resuelve el host y valida TODAS las direcciones dentro del propio lookup del socket.
+// Así la IP que se valida es exactamente la IP a la que se conecta (sin ventana de DNS rebinding).
+const publicOnlyLookup = (hostname, options, callback) => {
+  if (typeof options === 'function') {
+    callback = options
+    options = {}
+  }
+  dns.lookup(hostname, { ...options, all: true, verbatim: true }, (err, addresses) => {
+    if (err) return callback(err)
+    const list = Array.isArray(addresses) ? addresses : [{ address: addresses, family: net.isIP(addresses) }]
+    if (!list.length || list.some(({ address }) => !isPublicAddress(address))) {
+      return callback(new ZyrixError('media URL not allowed: the host does not resolve exclusively to public IPs', { kind: ErrorKind.MEDIA, errorCode: 'MEDIA_URL_BLOCKED' }))
+    }
+    if (options && options.all) return callback(null, list)
+    callback(null, list[0].address, list[0].family)
+  })
+}
+
+const assertPublicMediaUrl = async (value) => {
+  const url = assertMediaUrlShape(value)
+  const host = url.hostname.replace(/^\[|\]$/g, '').toLowerCase()
+  if (!net.isIP(host)) {
+    await new Promise((resolve, reject) => publicOnlyLookup(host, { all: true }, (err) => (err ? reject(err) : resolve())))
+  }
+  return url
+}
+
+const pinnedGet = (url, headers, timeout) => new Promise((resolve, reject) => {
+  const client = url.protocol === 'https:' ? https : http
+  const req = client.request(url, { method: 'GET', headers, lookup: publicOnlyLookup, agent: false, signal: AbortSignal.timeout(timeout) }, resolve)
+  req.on('error', reject)
+  req.end()
+})
+
 const fetchToBuffer = async (url, { limit = Infinity, timeout = 30000, headers = {} } = {}) => {
   let current = await assertPublicMediaUrl(url)
   let requestHeaders = { 'user-agent': BROWSER_UA, accept: '*/*', ...headers }
   for (let redirects = 0; redirects <= 5; redirects++) {
-    await assertPublicMediaUrl(current)
-    const res = await fetch(current, { redirect: 'manual', headers: requestHeaders, signal: AbortSignal.timeout(timeout) })
-    if ([301, 302, 303, 307, 308].includes(res.status)) {
-      const location = res.headers.get('location')
-      await res.body?.cancel()
-      if (!location || redirects === 5) throw new Error('redirect de media inválido o demasiado largo')
+    assertMediaUrlShape(current)
+    const res = await pinnedGet(current, requestHeaders, timeout)
+    const status = res.statusCode || 0
+    if ([301, 302, 303, 307, 308].includes(status)) {
+      const location = res.headers.location
+      res.resume()
+      if (!location || redirects === 5) throw new ZyrixError('invalid or too long media redirect', { kind: ErrorKind.MEDIA, errorCode: 'MEDIA_REDIRECT_INVALID' })
       const next = new URL(location, current)
       if (next.host !== current.host) {
-        const safeHeaders = new Headers(requestHeaders)
-        for (const name of ['authorization', 'cookie', 'proxy-authorization']) safeHeaders.delete(name)
-        requestHeaders = Object.fromEntries(safeHeaders)
+        const safeHeaders = { ...requestHeaders }
+        for (const name of Object.keys(safeHeaders)) {
+          if (['authorization', 'cookie', 'proxy-authorization'].includes(name.toLowerCase())) delete safeHeaders[name]
+        }
+        requestHeaders = safeHeaders
       }
       current = next
       continue
     }
-    if (!res.ok) throw new Error(`descarga fallida ${res.status}${res.statusText ? ` ${res.statusText}` : ''}`)
-    const declared = Number(res.headers.get('content-length'))
-    if (Number.isFinite(declared) && declared > limit) {
-      await res.body?.cancel()
-      throw new RangeError(`el media supera el límite de ${limit} bytes`)
+    if (status < 200 || status >= 300) {
+      res.resume()
+      throw new ZyrixError(`download failed ${status}${res.statusMessage ? ` ${res.statusMessage}` : ''}`, { kind: ErrorKind.MEDIA, errorCode: 'MEDIA_DOWNLOAD_FAILED', code: status })
     }
-    return res.body ? readStreamLimited(res.body, limit) : Buffer.alloc(0)
+    const declared = Number(res.headers['content-length'])
+    if (Number.isFinite(declared) && declared > limit) {
+      res.destroy()
+      throw new RangeError(`media exceeds the ${limit}-byte limit`)
+    }
+    try {
+      return await readStreamLimited(res, limit)
+    } catch (err) {
+      res.destroy()
+      throw err
+    }
   }
-  throw new Error('demasiados redirects al descargar media')
+  throw new ZyrixError('too many redirects downloading media', { kind: ErrorKind.MEDIA, errorCode: 'MEDIA_REDIRECT_INVALID' })
 }
 
 const toBuffer = async (input, limit = Infinity) => {
   if (Buffer.isBuffer(input) || input instanceof Uint8Array) {
-    if (input.length > limit) throw new RangeError(`el media supera el límite de ${limit} bytes`)
+    if (input.length > limit) throw new RangeError(`media exceeds the ${limit}-byte limit`)
     return Buffer.from(input)
   }
   if (typeof input === 'string') {
@@ -217,26 +265,26 @@ const toBuffer = async (input, limit = Infinity) => {
       }
       if (DATA_URL.test(input.url)) {
         const buffer = decodeDataUrl(input.url)
-        if (buffer.length > limit) throw new RangeError(`el media supera el límite de ${limit} bytes`)
+        if (buffer.length > limit) throw new RangeError(`media exceeds the ${limit}-byte limit`)
         return buffer
       }
       const localStat = await fs.promises.stat(input.url)
-      if (localStat.size > limit) throw new RangeError(`el media supera el límite de ${limit} bytes`)
+      if (localStat.size > limit) throw new RangeError(`media exceeds the ${limit}-byte limit`)
       return fs.promises.readFile(input.url)
     }
     if (typeof input.data === 'string') {
       const buffer = DATA_URL.test(input.data) ? decodeDataUrl(input.data) : Buffer.from(input.data, 'base64')
-      if (buffer.length > limit) throw new RangeError(`el media supera el límite de ${limit} bytes`)
+      if (buffer.length > limit) throw new RangeError(`media exceeds the ${limit}-byte limit`)
       return buffer
     }
     if (typeof input.path === 'string') {
       const stat = await fs.promises.stat(input.path)
-      if (stat.size > limit) throw new RangeError(`el media supera el límite de ${limit} bytes`)
+      if (stat.size > limit) throw new RangeError(`media exceeds the ${limit}-byte limit`)
       return fs.promises.readFile(input.path)
     }
     if (input.stream && typeof input.stream[Symbol.asyncIterator] === 'function') return readStreamLimited(input.stream, limit)
   }
-  throw new TypeError('el media debe ser Buffer, Uint8Array, ruta, URL, { url }, { path } o { stream }')
+  throw new TypeError('media must be a Buffer, Uint8Array, path, URL, { url }, { path } or { stream }')
 }
 
 const noop = () => {}
@@ -254,4 +302,4 @@ const makeLogger = (option) => {
 }
 
 export { S_WHATSAPP_NET, be, readBE, genId, pad, unpad, num, encodeAccount, sleep, TTLCache, jsonReplacer, jsonReviver, toBuffer, makeLogger }
-export { toBuffer as toBufferFetcher, sniffMimeType, BROWSER_UA }
+export { toBuffer as toBufferFetcher, sniffMimeType, BROWSER_UA, assertPublicMediaUrl, publicOnlyLookup, isPublicAddress }

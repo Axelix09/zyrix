@@ -11,6 +11,7 @@ import { S_WHATSAPP_NET as S } from './util.js'
 import { buildMessage, stickerPack, unwrapMessage } from './content.js'
 import { normalizeJid } from './jid.js'
 import { toBuffer, genId, sniffMimeType } from './util.js'
+import { ZyrixError, ErrorKind } from './errors.js'
 
 const PATH = { image: '/mms/image', video: '/mms/video', audio: '/mms/audio', document: '/mms/document', sticker: '/mms/image', 'sticker-pack': '/mms/sticker-pack' }
 const TYPES = ['image', 'video', 'audio', 'document', 'sticker']
@@ -36,19 +37,19 @@ const readHead = async (filePath, length = 4096) => {
 }
 
 const assertMediaSize = (buffer, limit) => {
-  if (!buffer || typeof buffer.length !== 'number') throw new TypeError('el media debe ser un Buffer o Uint8Array')
-  if (buffer.length > limit) throw new RangeError(`el media supera el límite de ${limit} bytes`)
+  if (!buffer || typeof buffer.length !== 'number') throw new TypeError('media must be a Buffer or Uint8Array')
+  if (buffer.length > limit) throw new RangeError(`media exceeds the ${limit}-byte limit`)
 }
 
 const readResponse = async (res, limit) => {
   const declared = Number(res.headers.get('content-length'))
-  if (Number.isFinite(declared) && declared > limit) throw new RangeError(`la descarga supera el límite de ${limit} bytes`)
+  if (Number.isFinite(declared) && declared > limit) throw new RangeError(`download exceeds the ${limit}-byte limit`)
   const chunks = []
   let total = 0
   if (!res.body) return Buffer.alloc(0)
   for await (const chunk of res.body) {
     total += chunk.length
-    if (total > limit) throw new RangeError(`la descarga supera el límite de ${limit} bytes`)
+    if (total > limit) throw new RangeError(`download exceeds the ${limit}-byte limit`)
     chunks.push(Buffer.from(chunk))
   }
   return Buffer.concat(chunks, total)
@@ -56,11 +57,11 @@ const readResponse = async (res, limit) => {
 
 const mediaUrl = (message) => {
   if (message.directPath) {
-    if (typeof message.directPath !== 'string' || !message.directPath.startsWith('/')) throw new TypeError('directPath de media inválido')
+    if (typeof message.directPath !== 'string' || !message.directPath.startsWith('/')) throw new TypeError('invalid media directPath')
     return `https://mmg.whatsapp.net${message.directPath}`
   }
   const url = new URL(message.url)
-  if (url.protocol !== 'https:' || !ALLOWED_MEDIA_HOSTS.has(url.hostname)) throw new Error('host de media no permitido')
+  if (url.protocol !== 'https:' || !ALLOWED_MEDIA_HOSTS.has(url.hostname)) throw new ZyrixError('media host not allowed', { kind: ErrorKind.MEDIA, errorCode: 'MEDIA_HOST_NOT_ALLOWED' })
   return url.href
 }
 
@@ -69,17 +70,17 @@ const readUploadJson = async (res) => JSON.parse((await readResponse(res, 64 * 1
 
 const stageMediaStream = async (input, limit) => {
   const source = input?.stream
-  if (!source || typeof source[Symbol.asyncIterator] !== 'function') throw new TypeError('stream debe ser AsyncIterable de bytes')
+  if (!source || typeof source[Symbol.asyncIterator] !== 'function') throw new TypeError('stream must be an AsyncIterable of bytes')
   const dir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'zyrix-media-'))
   await fs.promises.chmod(dir, 0o700)
   const filePath = path.join(dir, 'input.bin')
   let size = 0
   const bounded = async function* () {
     for await (const chunk of source) {
-      if (!Buffer.isBuffer(chunk) && !(chunk instanceof Uint8Array)) throw new TypeError('el stream de media solo puede emitir bytes')
+      if (!Buffer.isBuffer(chunk) && !(chunk instanceof Uint8Array)) throw new TypeError('the media stream may only yield bytes')
       const buffer = Buffer.from(chunk)
       size += buffer.length
-      if (size > limit) throw new RangeError(`el media supera el límite de ${limit} bytes`)
+      if (size > limit) throw new RangeError(`media exceeds the ${limit}-byte limit`)
       yield buffer
     }
   }
@@ -100,8 +101,8 @@ export default {
   sendSticker(to, sticker, options = {}) { return this.sendMedia(to, { ...options, sticker }) },
 
   async sendAlbum(to, items, options = {}) {
-    if (!Array.isArray(items) || items.length < 2 || items.length > 30) throw new RangeError('album requiere entre 2 y 30 elementos')
-    if (items.some((item) => !item || (!item.image && !item.video) || (item.image && item.video))) throw new TypeError('cada elemento del album debe tener image o video')
+    if (!Array.isArray(items) || items.length < 2 || items.length > 30) throw new RangeError('album requires between 2 and 30 items')
+    if (items.some((item) => !item || (!item.image && !item.video) || (item.image && item.video))) throw new TypeError('every album item must have image or video')
     const chat = normalizeJid(to, S)
     const counts = items.reduce((acc, item) => { acc[item.image ? 'image' : 'video']++; return acc }, { image: 0, video: 0 })
     const caption = options.caption || options.text || ''
@@ -132,7 +133,7 @@ export default {
 
   async sendStickerPack(to, options = {}) {
     const source = options.pack || options.file || options.archive
-    if (!source) throw new TypeError('sendStickerPack requiere pack/file/archive')
+    if (!source) throw new TypeError('sendStickerPack requires pack/file/archive')
     const pack = await toBuffer(source, this.maxMediaBytes)
     const metadata = stickerPack(options).stickerPackMessage
     const up = await this.uploadMedia(pack, 'sticker')
@@ -179,7 +180,7 @@ export default {
         })
         if (!res.ok) {
           if (res.status === 401 || res.status === 403) this.mediaConnCache = null
-          lastError = new Error(`el host ${host} respondió ${res.status}`)
+          lastError = new ZyrixError(`host ${host} responded ${res.status}`, { kind: ErrorKind.MEDIA, errorCode: 'UPLOAD_HOST_ERROR' })
           continue
         }
         const json = await readUploadJson(res)
@@ -188,12 +189,12 @@ export default {
         lastError = e
       }
     }
-    throw new Error(`no se pudo subir el media${lastError ? `: ${lastError.message}` : ''}`, { cause: lastError })
+    throw new ZyrixError(`media upload failed${lastError ? `: ${lastError.message}` : ''}`, { kind: ErrorKind.MEDIA, errorCode: 'MEDIA_UPLOAD_FAILED', cause: lastError })
   },
 
   async uploadMediaFile(filePath, type) {
     const { size } = await fs.promises.stat(filePath)
-    if (size > this.maxFileBytes) throw new RangeError(`el archivo supera el límite de ${this.maxFileBytes} bytes`)
+    if (size > this.maxFileBytes) throw new RangeError(`file exceeds the ${this.maxFileBytes}-byte limit`)
     const encPath = path.join(os.tmpdir(), `zyrix-${randomUUID()}.enc`)
     try {
       const enc = await encryptMediaFile(filePath, encPath, type)
@@ -207,7 +208,7 @@ export default {
           const res = await postFile(host, `${PATH[type]}/${token}?auth=${conn.auth}&token=${token}`, encPath, encSize)
           if (res.status < 200 || res.status >= 300) {
             if (res.status === 401 || res.status === 403) this.mediaConnCache = null
-            lastError = new Error(`el host ${host} respondió ${res.status}`)
+            lastError = new ZyrixError(`host ${host} responded ${res.status}`, { kind: ErrorKind.MEDIA, errorCode: 'UPLOAD_HOST_ERROR' })
             continue
           }
           const json = JSON.parse(res.body)
@@ -216,15 +217,15 @@ export default {
           lastError = e
         }
       }
-      throw new Error(`no se pudo subir el media${lastError ? `: ${lastError.message}` : ''}`, { cause: lastError })
+      throw new ZyrixError(`media upload failed${lastError ? `: ${lastError.message}` : ''}`, { kind: ErrorKind.MEDIA, errorCode: 'MEDIA_UPLOAD_FAILED', cause: lastError })
     } finally {
       await fs.promises.rm(encPath, { force: true }).catch(() => {})
     }
   },
 
   async uploadEncryptedMedia(input, { fileEncSha256B64, mediaType } = {}) {
-    if (typeof fileEncSha256B64 !== 'string' || !fileEncSha256B64) throw new TypeError('fileEncSha256B64 es obligatorio')
-    if (!PATH[mediaType]) throw new TypeError(`mediaType no soportado: ${String(mediaType)}`)
+    if (typeof fileEncSha256B64 !== 'string' || !fileEncSha256B64) throw new TypeError('fileEncSha256B64 is required')
+    if (!PATH[mediaType]) throw new TypeError(`unsupported mediaType: ${String(mediaType)}`)
     const body = await toBuffer(input, this.maxMediaBytes + 64)
     const conn = await this.mediaConn()
     const token = b64url(Buffer.from(fileEncSha256B64, 'base64'))
@@ -240,7 +241,7 @@ export default {
         })
         if (!res.ok) {
           if (res.status === 401 || res.status === 403) this.mediaConnCache = null
-          lastError = new Error(`el host ${host} respondió ${res.status}`)
+          lastError = new ZyrixError(`host ${host} responded ${res.status}`, { kind: ErrorKind.MEDIA, errorCode: 'UPLOAD_HOST_ERROR' })
           continue
         }
         const json = await readUploadJson(res)
@@ -249,12 +250,12 @@ export default {
         lastError = e
       }
     }
-    throw new Error(`no se pudo subir el media cifrado${lastError ? `: ${lastError.message}` : ''}`, { cause: lastError })
+    throw new ZyrixError(`encrypted media upload failed${lastError ? `: ${lastError.message}` : ''}`, { kind: ErrorKind.MEDIA, errorCode: 'MEDIA_UPLOAD_FAILED', cause: lastError })
   },
 
   async sendMedia(to, opts) {
     const type = TYPES.find((t) => opts[t])
-    if (!type) throw new Error('falta image, video, audio, document o sticker')
+    if (!type) throw new ZyrixError('missing image, video, audio, document or sticker', { kind: ErrorKind.INVALID, errorCode: 'MEDIA_CONTENT_MISSING' })
     let localFile = localMediaPath(opts[type])
     let staged
     try {
@@ -299,11 +300,11 @@ export default {
     const type = message.stickerPackMessage
       ? 'sticker'
       : TYPES.find((t) => message[`${t}Message`]) || (mediaType && TYPES.includes(mediaType) && (message.mediaKey || message.directPath || message.url) ? mediaType : undefined)
-    if (!type) throw new Error('el mensaje no tiene media')
+    if (!type) throw new ZyrixError('the message has no media', { kind: ErrorKind.MEDIA, errorCode: 'MEDIA_NOT_FOUND' })
     const m = message.stickerPackMessage || message[`${type}Message`] || message
     const url = mediaUrl(m)
     const res = await fetch(url, { headers: { Origin: 'https://web.whatsapp.com' }, signal: AbortSignal.timeout(30_000) })
-    if (!res.ok) throw new Error('descarga fallida ' + res.status)
+    if (!res.ok) throw new ZyrixError('download failed ' + res.status, { kind: ErrorKind.MEDIA, errorCode: 'MEDIA_DOWNLOAD_FAILED' })
     return decryptMedia(await readResponse(res, this.maxMediaBytes + 26), m.mediaKey, type)
   },
 
@@ -312,21 +313,21 @@ export default {
     const type = message.stickerPackMessage
       ? 'sticker'
       : TYPES.find((t) => message[`${t}Message`]) || (options.mediaType && TYPES.includes(options.mediaType) && (message.mediaKey || message.directPath || message.url) ? options.mediaType : undefined)
-    if (!type) throw new Error('el mensaje no tiene media')
+    if (!type) throw new ZyrixError('the message has no media', { kind: ErrorKind.MEDIA, errorCode: 'MEDIA_NOT_FOUND' })
     const m = message.stickerPackMessage || message[`${type}Message`] || message
     const url = mediaUrl(m)
     const maxBytes = options.maxBytes ?? this.maxFileBytes
     const timeout = options.timeout ?? 120_000
-    if (!Number.isSafeInteger(maxBytes) || maxBytes < 1 || maxBytes > this.maxFileBytes) throw new RangeError(`maxBytes debe estar entre 1 y maxFileBytes (${this.maxFileBytes})`)
-    if (!Number.isSafeInteger(timeout) || timeout < 1) throw new RangeError('timeout debe ser un entero positivo en milisegundos')
+    if (!Number.isSafeInteger(maxBytes) || maxBytes < 1 || maxBytes > this.maxFileBytes) throw new RangeError(`maxBytes must be between 1 and maxFileBytes (${this.maxFileBytes})`)
+    if (!Number.isSafeInteger(timeout) || timeout < 1) throw new RangeError('timeout must be a positive integer of milliseconds')
     const res = await fetch(url, { headers: { Origin: 'https://web.whatsapp.com' }, signal: AbortSignal.timeout(timeout) })
-    if (!res.ok) throw new Error('descarga fallida ' + res.status)
-    if (!res.body) throw new Error('la respuesta no contiene media')
+    if (!res.ok) throw new ZyrixError('download failed ' + res.status, { kind: ErrorKind.MEDIA, errorCode: 'MEDIA_DOWNLOAD_FAILED' })
+    if (!res.body) throw new ZyrixError('the response has no media body', { kind: ErrorKind.MEDIA, errorCode: 'MEDIA_DOWNLOAD_FAILED' })
     const declared = Number(res.headers.get('content-length'))
     const encryptedLimit = Math.ceil(maxBytes / 16) * 16 + 26
     if (Number.isFinite(declared) && declared > encryptedLimit) {
       await res.body.cancel()
-      throw new RangeError(`el media supera el límite de ${maxBytes} bytes`)
+      throw new RangeError(`media exceeds the ${maxBytes}-byte limit`)
     }
     return decryptMediaToFile(res.body, outputPath, m.mediaKey, type, { maxBytes })
   }

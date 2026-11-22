@@ -2,6 +2,7 @@ import crypto from 'crypto'
 import fs from 'fs'
 import path from 'node:path'
 import { hkdf, aesCbcEncrypt, aesCbcDecrypt, hmacSha256, sha256 } from './crypto.js'
+import { ZyrixError, ErrorKind } from './errors.js'
 
 const INFO = {
   image: 'WhatsApp Image Keys',
@@ -13,14 +14,14 @@ const INFO = {
 }
 
 const expand = (mediaKey, type) => {
-  if (!INFO[type]) throw new Error(`tipo de media no soportado: ${type}`)
-  if (!Buffer.isBuffer(mediaKey) || mediaKey.length !== 32) throw new TypeError('mediaKey debe tener 32 bytes')
+  if (!INFO[type]) throw new ZyrixError(`unsupported media type: ${type}`, { kind: ErrorKind.INVALID, errorCode: 'MEDIA_TYPE_UNSUPPORTED' })
+  if (!Buffer.isBuffer(mediaKey) || mediaKey.length !== 32) throw new TypeError('mediaKey must be 32 bytes')
   const k = hkdf(Buffer.from(mediaKey), 112, null, INFO[type])
   return { iv: k.subarray(0, 16), cipherKey: k.subarray(16, 48), macKey: k.subarray(48, 80) }
 }
 
 const encryptMedia = (buffer, type) => {
-  if (!Buffer.isBuffer(buffer) && !(buffer instanceof Uint8Array)) throw new TypeError('el media debe ser un Buffer o Uint8Array')
+  if (!Buffer.isBuffer(buffer) && !(buffer instanceof Uint8Array)) throw new TypeError('media must be a Buffer or Uint8Array')
   buffer = Buffer.from(buffer)
   const mediaKey = crypto.randomBytes(32)
   const { iv, cipherKey, macKey } = expand(mediaKey, type)
@@ -75,9 +76,9 @@ const encryptMediaFile = async (inputPath, outputPath, type) => {
 }
 
 const decryptMediaToFile = async (encryptedStream, outputPath, mediaKey, type, { maxBytes = Infinity } = {}) => {
-  if (!encryptedStream || typeof encryptedStream[Symbol.asyncIterator] !== 'function') throw new TypeError('encryptedStream debe ser async iterable')
-  if (typeof outputPath !== 'string' || !outputPath) throw new TypeError('outputPath debe ser una ruta no vacía')
-  if (!(maxBytes === Infinity || Number.isSafeInteger(maxBytes) && maxBytes > 0)) throw new TypeError('maxBytes debe ser un entero positivo')
+  if (!encryptedStream || typeof encryptedStream[Symbol.asyncIterator] !== 'function') throw new TypeError('encryptedStream must be async iterable')
+  if (typeof outputPath !== 'string' || !outputPath) throw new TypeError('outputPath must be a non-empty path')
+  if (!(maxBytes === Infinity || Number.isSafeInteger(maxBytes) && maxBytes > 0)) throw new TypeError('maxBytes must be a positive integer')
   const target = path.resolve(outputPath)
   const temp = path.join(path.dirname(target), `.${path.basename(target)}.${crypto.randomUUID()}.tmp`)
   const { iv, cipherKey, macKey } = expand(mediaKey, type)
@@ -93,7 +94,7 @@ const decryptMediaToFile = async (encryptedStream, outputPath, mediaKey, type, {
     let offset = 0
     while (offset < buffer.length) {
       const { bytesWritten } = await handle.write(buffer, offset, buffer.length - offset)
-      if (!bytesWritten) throw new Error('no se pudo escribir el archivo descifrado')
+      if (!bytesWritten) throw new ZyrixError('could not write the decrypted file', { kind: ErrorKind.MEDIA, errorCode: 'MEDIA_WRITE_FAILED' })
       offset += bytesWritten
     }
   }
@@ -102,7 +103,7 @@ const decryptMediaToFile = async (encryptedStream, outputPath, mediaKey, type, {
     for await (const chunk of encryptedStream) {
       const part = Buffer.from(chunk)
       encryptedBytes += part.length
-      if (encryptedBytes > maxEncryptedBytes) throw new RangeError(`el media supera el límite de ${maxBytes} bytes`)
+      if (encryptedBytes > maxEncryptedBytes) throw new RangeError(`media exceeds the ${maxBytes}-byte limit`)
       const joined = tail.length ? Buffer.concat([tail, part]) : part
       if (joined.length <= 10) {
         tail = joined
@@ -115,17 +116,17 @@ const decryptMediaToFile = async (encryptedStream, outputPath, mediaKey, type, {
       hmac.update(cipherText)
       const plain = decipher.update(cipherText)
       plainBytes += plain.length
-      if (plainBytes > maxBytes) throw new RangeError(`el media supera el límite de ${maxBytes} bytes`)
+      if (plainBytes > maxBytes) throw new RangeError(`media exceeds the ${maxBytes}-byte limit`)
       if (plain.length) await writeAll(plain)
     }
     if (tail.length !== 10 || encryptedPayloadBytes < 16 || encryptedPayloadBytes % 16 !== 0) {
-      throw new Error('media cifrado truncado o malformado')
+      throw new ZyrixError('encrypted media is truncated or malformed', { kind: ErrorKind.DECRYPT, errorCode: 'MEDIA_TRUNCATED' })
     }
     const expected = hmac.digest().subarray(0, 10)
-    if (!crypto.timingSafeEqual(expected, tail)) throw new Error('MAC de media inválido')
+    if (!crypto.timingSafeEqual(expected, tail)) throw new ZyrixError('invalid media MAC', { kind: ErrorKind.DECRYPT, errorCode: 'MEDIA_MAC_INVALID' })
     const final = decipher.final()
     plainBytes += final.length
-    if (plainBytes > maxBytes) throw new RangeError(`el media supera el límite de ${maxBytes} bytes`)
+    if (plainBytes > maxBytes) throw new RangeError(`media exceeds the ${maxBytes}-byte limit`)
     if (final.length) await writeAll(final)
     await handle.sync()
     await handle.close()
@@ -142,14 +143,14 @@ const decryptMediaToFile = async (encryptedStream, outputPath, mediaKey, type, {
 }
 
 const decryptMedia = (body, mediaKey, type) => {
-  if (!Buffer.isBuffer(body) && !(body instanceof Uint8Array)) throw new TypeError('el media cifrado debe ser un Buffer o Uint8Array')
+  if (!Buffer.isBuffer(body) && !(body instanceof Uint8Array)) throw new TypeError('encrypted media must be a Buffer or Uint8Array')
   body = Buffer.from(body)
-  if (body.length < 26 || (body.length - 10) % 16 !== 0) throw new Error('media cifrado truncado o malformado')
+  if (body.length < 26 || (body.length - 10) % 16 !== 0) throw new ZyrixError('encrypted media is truncated or malformed', { kind: ErrorKind.DECRYPT, errorCode: 'MEDIA_TRUNCATED' })
   const { iv, cipherKey, macKey } = expand(mediaKey, type)
   const enc = body.subarray(0, body.length - 10)
   const mac = body.subarray(body.length - 10)
   const expected = hmacSha256(Buffer.concat([iv, enc]), macKey).subarray(0, 10)
-  if (!crypto.timingSafeEqual(expected, mac)) throw new Error('MAC de media inválido')
+  if (!crypto.timingSafeEqual(expected, mac)) throw new ZyrixError('invalid media MAC', { kind: ErrorKind.DECRYPT, errorCode: 'MEDIA_MAC_INVALID' })
   return aesCbcDecrypt(enc, cipherKey, iv)
 }
 

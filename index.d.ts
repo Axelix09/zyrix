@@ -115,6 +115,8 @@ export type ZyrixMessages = {
   signal: Record<string, string | ((signal: string) => string)>
 }
 export declare const DEFAULT_MESSAGES: Readonly<ZyrixMessages>
+/** Spanish launcher texts (the defaults before 0.19). Use with `mergeMessages(MESSAGES_ES)`. */
+export declare const MESSAGES_ES: Readonly<ZyrixMessages>
 export declare function mergeMessages(custom?: Partial<ZyrixMessages>): ZyrixMessages
 export type MediaOptions = SendOptions & {
   image?: MediaInput; video?: MediaInput; audio?: MediaInput
@@ -179,15 +181,20 @@ export type SocketEventMap = {
   error: (error: Error) => void
 }
 
-export type ErrorKindValue = 'timeout' | 'closed' | 'not-ready' | 'rejected' | 'invalid' | 'no-session' | 'decrypt' | 'media' | 'auth' | 'not-found'
-export const ErrorKind: Readonly<{ TIMEOUT: 'timeout'; CLOSED: 'closed'; NOT_READY: 'not-ready'; REJECTED: 'rejected'; INVALID: 'invalid'; NO_SESSION: 'no-session'; DECRYPT: 'decrypt'; MEDIA: 'media'; AUTH: 'auth'; NOT_FOUND: 'not-found' }>
+export type ErrorKindValue = 'timeout' | 'closed' | 'not-ready' | 'rejected' | 'invalid' | 'no-session' | 'decrypt' | 'media' | 'auth' | 'protocol' | 'not-found'
+export const ErrorKind: Readonly<{ TIMEOUT: 'timeout'; CLOSED: 'closed'; NOT_READY: 'not-ready'; REJECTED: 'rejected'; INVALID: 'invalid'; NO_SESSION: 'no-session'; DECRYPT: 'decrypt'; MEDIA: 'media'; AUTH: 'auth'; PROTOCOL: 'protocol'; NOT_FOUND: 'not-found' }>
+/** Stable, language-independent error identifiers. Compare `error.errorCode` against these instead of matching `error.message`. */
+export type ErrorCodeValue = 'APPSTATE_BLOB_DOWNLOAD_FAILED' | 'APPSTATE_INDEX_MAC_INVALID' | 'APPSTATE_KEY_INVALID' | 'APPSTATE_KEY_MISSING' | 'APPSTATE_RECORD_TRUNCATED' | 'APPSTATE_VALUE_MAC_INVALID' | 'BINARY_CONTENT_INVALID' | 'BINARY_EOF' | 'BINARY_JID_INVALID' | 'BINARY_LIST_TAG_INVALID' | 'BINARY_NODE_INVALID' | 'BINARY_TAG_UNSUPPORTED' | 'BUSINESS_RESPONSE_INVALID' | 'CIPHERTEXT_TRUNCATED' | 'COMMUNITY_TITLE_REQUIRED' | 'CONNECTION_IDLE' | 'CONNECTION_REJECTED' | 'DECRYPT_FAILED' | 'DEVICE_SESSION_MISSING' | 'GROUP_RESPONSE_INVALID' | 'KEEPALIVE_FAILED' | 'LID_MAPPING_REQUIRED' | 'MEDIA_CONTENT_MISSING' | 'MEDIA_DOWNLOAD_FAILED' | 'MEDIA_HOST_NOT_ALLOWED' | 'MEDIA_MAC_INVALID' | 'MEDIA_NOT_FOUND' | 'MEDIA_REDIRECT_INVALID' | 'MEDIA_TRUNCATED' | 'MEDIA_TYPE_UNSUPPORTED' | 'MEDIA_UPLOAD_FAILED' | 'MEDIA_URL_BLOCKED' | 'MEDIA_WRITE_FAILED' | 'MESSAGE_PROCESSING_FAILED' | 'NEWSLETTER_NAME_REQUIRED' | 'NEWSLETTER_NOT_FOUND' | 'PAIRING_HMAC_INVALID' | 'PAIRING_SIGNATURE_INVALID' | 'PLUGIN_WATCH_IN_PRODUCTION' | 'PROTO_SCHEMA_MISSING' | 'RECIPIENT_SESSION_FAILED' | 'SENDER_KEY_DUPLICATE' | 'SENDER_KEY_ID_MISMATCH' | 'SENDER_KEY_JUMP_TOO_LARGE' | 'SENDER_KEY_MALFORMED' | 'SENDER_KEY_MISSING' | 'SENDER_KEY_SIGNATURE_INVALID' | 'SESSION_CORRUPT' | 'SESSION_DECRYPT_FAILED' | 'SESSION_DIR_INVALID' | 'SESSION_ENCRYPTED' | 'SESSION_ENVELOPE_INVALID' | 'SESSION_FILE_INVALID' | 'SESSION_NOT_REGISTERED' | 'SESSION_READ_FAILED' | 'SESSION_SNAPSHOT_INVALID' | 'SESSION_TOO_LARGE' | 'SIGNAL_VERIFY_UNRELIABLE' | 'STORE_NOT_BOUND' | 'STREAM_ERROR' | 'TRANSPORT_NOT_CONNECTED' | 'UPLOAD_HOST_ERROR' | 'UPLOAD_RESPONSE_INVALID' | 'UPLOAD_RESPONSE_TOO_LARGE' | 'UPLOAD_TIMEOUT' | 'WEBSOCKET_CLOSED_BEFORE_HANDSHAKE' | 'WEBSOCKET_OPEN_TIMEOUT'
+export const ErrorCode: Readonly<{ [K in ErrorCodeValue]: K }>
 export class ZyrixError extends Error {
-  constructor(message: string, options?: { kind?: ErrorKindValue | string; code?: number | string; details?: unknown; cause?: unknown })
+  constructor(message: string, options?: { kind?: ErrorKindValue | string; code?: number | string; errorCode?: ErrorCodeValue | string; details?: unknown; cause?: unknown })
+  /** Stable identifier from {@link ErrorCode}; does not change when the message text does. */
+  errorCode?: ErrorCodeValue | string
   kind: ErrorKindValue | string
   code?: number | string
   details?: unknown
   readonly retryable: boolean
-  toJSON(): { name: string; kind: string; code?: number | string; message: string; retryable: boolean }
+  toJSON(): { name: string; kind: string; errorCode?: string; code?: number | string; message: string; retryable: boolean }
 }
 export function isZyrixError(value: unknown, kind?: ErrorKindValue): value is ZyrixError
 

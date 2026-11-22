@@ -1,4 +1,5 @@
 import { jidNormalizedUser } from './jid.js'
+import { ZyrixError, ErrorKind } from './errors.js'
 
 export function makeNewslettersApi(socket, queryRunner) {
   const runQuery = async (query) => {
@@ -11,7 +12,7 @@ export function makeNewslettersApi(socket, queryRunner) {
   return Object.freeze({
     async create(name, description = '') {
       if (!name || typeof name !== 'string') {
-        throw new Error('El nombre del canal es obligatorio')
+        throw new ZyrixError('the channel name is required', { kind: ErrorKind.INVALID, errorCode: 'NEWSLETTER_NAME_REQUIRED' })
       }
 
       const result = await runQuery({
@@ -67,7 +68,7 @@ export function makeNewslettersApi(socket, queryRunner) {
 
       const data = result.content?.find(n => n.tag === 'newsletter')
       if (!data) {
-        throw new Error('No se encontró información del canal')
+        throw new ZyrixError('channel information not found', { kind: ErrorKind.PROTOCOL, errorCode: 'NEWSLETTER_NOT_FOUND' })
       }
 
       const nameNode = data.content?.find(n => n.tag === 'name')

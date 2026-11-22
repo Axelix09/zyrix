@@ -3,18 +3,18 @@ import { useFileAuthState, MAX_MONGO_DOCUMENT_BYTES } from './auth.js'
 import { proto } from './proto.js'
 import { createStore, makeInMemoryStore } from './store.js'
 import { useAdapterAuthState, useMemoryAuthState, memoryAdapter, mongoAdapter } from './authstore.js'
-import { ZyrixError, ErrorKind, isZyrixError } from './errors.js'
+import { ZyrixError, ErrorKind, ErrorCode, isZyrixError } from './errors.js'
 import { MessageContext } from './context.js'
 import { parseMessage } from './incoming.js'
 import { DisconnectReason, reasonName } from './reasons.js'
-import { DEFAULT_MESSAGES, mergeMessages } from './locale.js'
+import { DEFAULT_MESSAGES, MESSAGES_ES, mergeMessages } from './locale.js'
 import { Launcher, createLauncher, start, parsePhoneNumber, formatPairingCode, promptPhone } from './launcher.js'
 import * as contentModule from './content.js'
 import {
   jidDecode, jidEncode, normalizeJid, jidNormalizedUser, jidWithoutDevice, jidType, isJidUser, isJidLid, isJidPN, isJidGroup
 } from './jid.js'
 
-const { socketMethods, ...builders } = contentModule
+const { socketMethods: _socketMethods, ...builders } = contentModule
 const content = Object.freeze({ ...builders })
 
 const makeSocket = (options) => new Socket(options).start()
@@ -27,7 +27,7 @@ const connect = async ({ session = 'session', auth, sessionEncryptionKey, ...opt
 
 export {
   start, createLauncher, Launcher, parsePhoneNumber, formatPairingCode, promptPhone, reasonName,
-  connect, makeSocket, Socket, MAX_MONGO_DOCUMENT_BYTES, useAdapterAuthState, useMemoryAuthState, memoryAdapter, mongoAdapter, ZyrixError, ErrorKind, isZyrixError, MessageContext, useFileAuthState, createStore, makeInMemoryStore, parseMessage, DisconnectReason, DEFAULT_MESSAGES, mergeMessages, proto, content,
+  connect, makeSocket, Socket, MAX_MONGO_DOCUMENT_BYTES, useAdapterAuthState, useMemoryAuthState, memoryAdapter, mongoAdapter, ZyrixError, ErrorKind, ErrorCode, isZyrixError, MessageContext, useFileAuthState, createStore, makeInMemoryStore, parseMessage, DisconnectReason, DEFAULT_MESSAGES, MESSAGES_ES, mergeMessages, proto, content,
   jidDecode, jidEncode, normalizeJid, jidNormalizedUser, jidWithoutDevice, jidType, isJidUser, isJidLid, isJidPN, isJidGroup
 }
 

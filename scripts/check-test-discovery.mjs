@@ -19,7 +19,7 @@ async function walk(dir) {
 }
 for (const dir of roots) await walk(path.join(root, dir))
 if (found.length === 0) {
-  console.error('No se encontraron pruebas *.test.js en test/ o tests/; npm test se detiene para evitar un falso verde.')
+  console.error('No *.test.js files found in test/ or tests/; npm test stops to avoid a false green.')
   process.exit(1)
 }
-console.log(`Descubrimiento correcto: ${found.length} archivo(s) de prueba.`)
+console.log(`Test discovery OK: ${found.length} test file(s).`)

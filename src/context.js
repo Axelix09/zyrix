@@ -99,7 +99,7 @@ class MessageContext {
     const answer = await this.sock.waitForMessage((m) => m.chat === this.chat && m.sender === this.sender && (!filter || filter(m)), timeout)
     if (!answer && strict) {
       const { ZyrixError, ErrorKind } = await import('./errors.js')
-      throw new ZyrixError('no hubo respuesta a tiempo', { kind: ErrorKind.TIMEOUT })
+      throw new ZyrixError('no reply arrived in time', { kind: ErrorKind.TIMEOUT })
     }
     return answer
   }

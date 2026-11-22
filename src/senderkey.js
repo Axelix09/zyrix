@@ -1,5 +1,6 @@
 import crypto from 'crypto'
 import { Curve, hmacSha256, hkdf, signalPub, aesCbcEncrypt, aesCbcDecrypt } from './crypto.js'
+import { ZyrixError, ErrorKind } from './errors.js'
 
 const VERSION = 0x33
 const MAX_SKIP = 2000
@@ -32,12 +33,12 @@ const pbDecode = (buf) => {
     let s = 1
     for (let count = 0; count < 10; count++) {
       const b = buf[i++]
-      if (b === undefined) throw new Error('protobuf truncado')
+      if (b === undefined) throw new ZyrixError('truncated protobuf', { kind: ErrorKind.DECRYPT, errorCode: 'SENDER_KEY_MALFORMED' })
       r += (b & 127) * s
       if (!(b & 128)) return r
       s *= 128
     }
-    throw new Error('varint demasiado largo')
+    throw new ZyrixError('varint too long', { kind: ErrorKind.DECRYPT, errorCode: 'SENDER_KEY_MALFORMED' })
   }
   while (i < buf.length) {
     const tag = readVarint()
@@ -46,10 +47,10 @@ const pbDecode = (buf) => {
     if (wire === 0) out[field] = readVarint()
     else if (wire === 2) {
       const len = readVarint()
-      if (!Number.isSafeInteger(len) || len > buf.length - i) throw new Error('campo protobuf truncado')
+      if (!Number.isSafeInteger(len) || len > buf.length - i) throw new ZyrixError('truncated protobuf field', { kind: ErrorKind.DECRYPT, errorCode: 'SENDER_KEY_MALFORMED' })
       out[field] = Buffer.from(buf.subarray(i, i + len))
       i += len
-    } else throw new Error('wire type no soportado')
+    } else throw new ZyrixError('unsupported wire type', { kind: ErrorKind.DECRYPT, errorCode: 'SENDER_KEY_MALFORMED' })
   }
   return out
 }
@@ -88,9 +89,9 @@ const distribution = (rec) =>
 
 const processDistribution = (state, group, address, data) => {
   const raw = Buffer.from(data)
-  if (raw.length < 2 || raw[0] !== VERSION) throw new Error('sender key version inválida')
+  if (raw.length < 2 || raw[0] !== VERSION) throw new ZyrixError('invalid sender key version', { kind: ErrorKind.DECRYPT, errorCode: 'SENDER_KEY_MALFORMED' })
   const b = pbDecode(raw.subarray(1))
-  if (!Number.isSafeInteger(b[1]) || !Number.isSafeInteger(b[2]) || !b[3] || !b[4]) throw new Error('sender key incompleta')
+  if (!Number.isSafeInteger(b[1]) || !Number.isSafeInteger(b[2]) || !b[3] || !b[4]) throw new ZyrixError('incomplete sender key', { kind: ErrorKind.DECRYPT, errorCode: 'SENDER_KEY_MALFORMED' })
   const name = nameOf(group, address)
   const current = state.keys.senderKeys[name]
   if (current && current.keyId === b[1]) return
@@ -117,23 +118,23 @@ const encrypt = (state, group, address, plaintext) => {
 
 const decrypt = (state, group, address, data) => {
   const rec = state.keys.senderKeys[nameOf(group, address)]
-  if (!rec) throw new Error('sin sender key')
+  if (!rec) throw new ZyrixError('no sender key', { kind: ErrorKind.NO_SESSION, errorCode: 'SENDER_KEY_MISSING' })
   const buf = Buffer.from(data)
-  if (buf.length < 66 || buf[0] !== VERSION) throw new Error('sender key message inválida')
+  if (buf.length < 66 || buf[0] !== VERSION) throw new ZyrixError('invalid sender key message', { kind: ErrorKind.DECRYPT, errorCode: 'SENDER_KEY_MALFORMED' })
   const signed = buf.subarray(0, buf.length - 64)
   const sig = buf.subarray(buf.length - 64)
   const body = pbDecode(signed.subarray(1))
-  if (body[1] !== rec.keyId) throw new Error('sender key id distinto')
-  if (!Curve.verify(rec.signingPublic, signed, sig)) throw new Error('firma de sender key invalida')
+  if (body[1] !== rec.keyId) throw new ZyrixError('sender key id mismatch', { kind: ErrorKind.DECRYPT, errorCode: 'SENDER_KEY_ID_MISMATCH' })
+  if (!Curve.verify(rec.signingPublic, signed, sig)) throw new ZyrixError('invalid sender key signature', { kind: ErrorKind.DECRYPT, errorCode: 'SENDER_KEY_SIGNATURE_INVALID' })
   const target = body[2] || 0
   let seed
   if (target < rec.iteration) {
     const k = rec.skipped[target]
-    if (!k) throw new Error('mensaje duplicado o viejo')
+    if (!k) throw new ZyrixError('duplicate or old message', { kind: ErrorKind.DECRYPT, errorCode: 'SENDER_KEY_DUPLICATE' })
     seed = Buffer.from(k)
     delete rec.skipped[target]
   } else {
-    if (target - rec.iteration > MAX_SKIP) throw new Error('salto de iteracion muy grande')
+    if (target - rec.iteration > MAX_SKIP) throw new ZyrixError('iteration jump too large', { kind: ErrorKind.DECRYPT, errorCode: 'SENDER_KEY_JUMP_TOO_LARGE' })
     while (rec.iteration < target) {
       rec.skipped[rec.iteration] = msgSeed(rec.chain)
       if (Object.keys(rec.skipped).length > MAX_SKIPPED) delete rec.skipped[rec.iteration - MAX_SKIPPED]

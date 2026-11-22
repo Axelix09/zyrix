@@ -39,7 +39,7 @@ El protocolo de WhatsApp Web cambia sin avisar y Zyrix no tiene relación con Wh
 
 ## Instalación
 
-Necesitas Node.js 18.17 o más nuevo. El paquete es ESM (`"type": "module"`), así que se importa con `import`, no con `require`.
+Necesitas Node.js 20 o más nuevo (Node 18 llegó al fin de vida en abril de 2025). El paquete es ESM (`"type": "module"`), así que se importa con `import`, no con `require`.
 
 ```bash
 npm install @axel-dev09/zyrix
@@ -174,6 +174,8 @@ El kit no envía textos propios. Si no defines las respuestas, no contesta nada.
 ### Plugins
 
 `bot.loadPlugins(dir, { watch, recursive })` carga los archivos `.js` y `.mjs` de una carpeta (ignora los que empiezan con `_`) y los recarga cuando los guardas. Un plugin puede exportar un objeto `{ commands, run, ...meta }`, un arreglo de objetos así, o una función `(bot) => {}`. En el último caso puedes llamar a `bot.onUnload(fn)` para limpiar lo que hayas creado.
+
+El cargador ESM de Node nunca libera un módulo importado, así que cada recarga deja la versión anterior en memoria. El kit emite `plugin.warning` cada 50 recargas del mismo archivo, y también cuando se usa `watch: true` con `NODE_ENV=production`. Usa el modo watch para desarrollar y reinicia el proceso en producción.
 
 Ojo: si cambias un módulo que el plugin importa, no se recarga solo. Solo se recarga el archivo del plugin.
 
@@ -360,13 +362,18 @@ El keepalive cierra y reinicia la conexión después de dos pings fallidos o de 
 
 ## Errores
 
-Los errores propios son `ZyrixError`. Tienen un `kind` (`timeout`, `closed`, `not-ready`, `rejected`, `invalid`, `no-session`, `decrypt`, `media` o `auth`), un `code` cuando lo manda el servidor y un `retryable`. `ErrorKind` e `isZyrixError` están exportados.
+Los errores propios son `ZyrixError`. Tienen un `kind` (`timeout`, `closed`, `not-ready`, `rejected`, `invalid`, `no-session`, `decrypt`, `media`, `auth`, `protocol` o `not-found`), un `errorCode` estable del catálogo exportado `ErrorCode` (por ejemplo `ErrorCode.WEBSOCKET_OPEN_TIMEOUT` o `ErrorCode.MEDIA_URL_NOT_PUBLIC`), un `code` cuando lo manda el servidor y un `retryable`. `ErrorKind`, `ErrorCode` e `isZyrixError` están exportados. Decide según `kind` y `errorCode`, nunca según `message`: el texto está en inglés y puede cambiar entre versiones.
+
+Si no registras `sock.on('error', ...)`, los errores no se pierden: van a `logger.error` si configuraste un `logger`, y si no se reportan como process warning de tipo `ZyrixWarning` (deduplicado, como máximo una vez por minuto por mensaje).
+
+Los textos incluidos (`DEFAULT_MESSAGES`) están en inglés. Los textos en español anteriores se exportan como `MESSAGES_ES`; usa `mergeMessages(MESSAGES_ES)` para conservarlos.
 
 ```js
 try {
   await sock.sendText(jid, 'hola')
 } catch (error) {
   if (isZyrixError(error, ErrorKind.REJECTED)) console.log(error.code)
+  else if (error.errorCode === ErrorCode.TRANSPORT_NOT_CONNECTED) await esperarConexion()
   else if (error.retryable) reintentar()
 }
 ```
@@ -420,7 +427,7 @@ Si tu bot solo atiende a contactos conocidos o maneja información sensible, usa
 
 ### Otras protecciones
 
-Las URLs HTTP(S) pasadas como media se validan para rechazar loopback, redes privadas/link-local, hosts locales, puertos no estándar y redirects hacia destinos no públicos. Aun así, evita pasar URLs arbitrarias controladas por usuarios a un bot expuesto a Internet y aplica reglas de egress en el servidor: el control de red/DNS de tu entorno es la defensa final contra cambios maliciosos de DNS. Las operaciones de media usan límites de tamaño; la descarga remota tiene timeout configurable.
+Las URLs HTTP(S) pasadas como media se validan para rechazar loopback, redes privadas/link-local, hosts locales, puertos no estándar y redirects hacia destinos no públicos. Aun así, evita pasar URLs arbitrarias controladas por usuarios a un bot expuesto a Internet y aplica reglas de egress en el servidor: el control de red/DNS de tu entorno es la defensa final. Cada dirección que devuelve el DNS se valida dentro del propio lookup del socket, y la conexión usa esa misma dirección validada, así que un host no puede pasar la validación y después resolverse a una IP privada (DNS rebinding). Los headers de autorización y cookies se descartan cuando un redirect cambia de host. Las operaciones de media usan límites de tamaño; la descarga remota tiene timeout configurable.
 
 Los mensajes entrantes que ya se procesaron se descartan por id durante 10 minutos, para que una reentrega del servidor no genere errores ni reintentos. Al sacar a alguien de un grupo, se rota la sender key propia de ese grupo. Las notificaciones de cambio de dispositivos invalidan la caché de dispositivos, y las de `encrypt` reponen prekeys.
 
@@ -503,7 +510,7 @@ Zyrix ya se probó manualmente con WhatsApp real. La suite automatizada no repit
 
 ## Desarrollo, licencia y avisos
 
-Ejecuta `npm install`, luego `npm test` y `npm run typecheck`. La matriz de CI cubre Node 18, 20 y 22.
+Ejecuta `npm ci`, luego `npm test`, `npm run lint`, `npm run typecheck` y `npm run test:coverage`. La matriz de CI cubre Node 20, 22 y 24, instala desde `package-lock.json` y verifica que el paquete publicado no incluya tests ni scripts.
 
 ### Licencia
 

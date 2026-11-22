@@ -1,5 +1,6 @@
 import zlib from 'zlib'
 import { SINGLE_BYTE_TOKENS, DOUBLE_BYTE_TOKENS } from './constants.js'
+import { ZyrixError, ErrorKind } from './errors.js'
 
 const T = {
   LIST_EMPTY: 0,
@@ -156,7 +157,7 @@ function encodeNode(node) {
       const items = content.filter(Boolean)
       writeListStart(items.length)
       items.forEach(writeNode)
-    } else if (content !== undefined && content !== null) throw new Error('contenido invalido')
+    } else if (content !== undefined && content !== null) throw new ZyrixError('invalid node content', { kind: ErrorKind.PROTOCOL, errorCode: 'BINARY_CONTENT_INVALID' })
   }
 
   writeNode(node)
@@ -168,7 +169,7 @@ function decodeNode(buffer) {
   let i = 0
 
   const need = (n) => {
-    if (i + n > data.length) throw new Error('fin de buffer')
+    if (i + n > data.length) throw new ZyrixError('unexpected end of buffer', { kind: ErrorKind.PROTOCOL, errorCode: 'BINARY_EOF' })
   }
   const readByte = () => {
     need(1)
@@ -204,7 +205,7 @@ function decodeNode(buffer) {
     if (tag === T.LIST_EMPTY) return 0
     if (tag === T.LIST_8) return readByte()
     if (tag === T.LIST_16) return readInt(2)
-    throw new Error('tag de lista invalido ' + tag)
+    throw new ZyrixError('invalid list tag ' + tag, { kind: ErrorKind.PROTOCOL, errorCode: 'BINARY_LIST_TAG_INVALID' })
   }
 
   function readString(tag) {
@@ -227,7 +228,7 @@ function decodeNode(buffer) {
       case T.JID_PAIR: {
         const u = readString(readByte())
         const s = readString(readByte())
-        if (!s) throw new Error('jid invalido')
+        if (!s) throw new ZyrixError('invalid jid', { kind: ErrorKind.PROTOCOL, errorCode: 'BINARY_JID_INVALID' })
         return (u || '') + '@' + s
       }
       case T.AD_JID: {
@@ -241,7 +242,7 @@ function decodeNode(buffer) {
       case T.NIBBLE_8:
         return readPacked(tag)
       default:
-        throw new Error('tag no soportado ' + tag)
+        throw new ZyrixError('unsupported tag ' + tag, { kind: ErrorKind.PROTOCOL, errorCode: 'BINARY_TAG_UNSUPPORTED' })
     }
   }
 
@@ -250,7 +251,7 @@ function decodeNode(buffer) {
   function readNode() {
     const size = readListSize(readByte())
     const tag = readString(readByte())
-    if (!size || !tag) throw new Error('nodo invalido')
+    if (!size || !tag) throw new ZyrixError('invalid node', { kind: ErrorKind.PROTOCOL, errorCode: 'BINARY_NODE_INVALID' })
     const attrs = {}
     for (let n = (size - 1) >> 1; n > 0; n--) {
       const k = readString(readByte())

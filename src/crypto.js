@@ -1,5 +1,6 @@
 import crypto from 'crypto'
 import libsignal from 'libsignal'
+import { ZyrixError, ErrorKind } from './errors.js'
 
 const signalPub = (pub) => (pub.length === 33 ? Buffer.from(pub) : Buffer.concat([Buffer.from([5]), Buffer.from(pub)]))
 
@@ -19,7 +20,7 @@ const calibrateVerify = () => {
   broken[0] ^= 1
   const good = verifyOutcome(pubKey, msg, sig)
   if (good === verifyOutcome(pubKey, msg, broken) || good === verifyOutcome(pubKey, Buffer.from('otro'), sig)) {
-    throw new Error('libsignal no permite distinguir una firma válida de una inválida')
+    throw new ZyrixError('libsignal cannot tell a valid signature from an invalid one', { kind: ErrorKind.DECRYPT, errorCode: 'SIGNAL_VERIFY_UNRELIABLE' })
   }
   return good
 }
@@ -47,7 +48,7 @@ const md5 = (d) => crypto.createHash('md5').update(d).digest()
 const hmacSha256 = (data, key) => crypto.createHmac('sha256', key).update(data).digest()
 
 const hkdf = (ikm, length, salt, info) => {
-  if (!Number.isInteger(length) || length < 0 || length > 255 * 32) throw new RangeError('longitud HKDF fuera de rango')
+  if (!Number.isInteger(length) || length < 0 || length > 255 * 32) throw new RangeError('HKDF length out of range')
   const prk = hmacSha256(ikm, salt && salt.length ? salt : Buffer.alloc(32))
   const infoBuf = info ? Buffer.from(info) : Buffer.alloc(0)
   const blocks = []
@@ -69,15 +70,15 @@ const iv = (counter) => {
 }
 
 const gcmEncrypt = (plaintext, key, counter, aad) => {
-  if (!Buffer.isBuffer(key) || key.length !== 32) throw new TypeError('AES-256-GCM requiere una clave de 32 bytes')
+  if (!Buffer.isBuffer(key) || key.length !== 32) throw new TypeError('AES-256-GCM requires a 32-byte key')
   const c = crypto.createCipheriv('aes-256-gcm', key, iv(counter))
   if (aad !== undefined) c.setAAD(aad)
   return Buffer.concat([c.update(plaintext), c.final(), c.getAuthTag()])
 }
 
 const gcmDecrypt = (data, key, counter, aad) => {
-  if (!Buffer.isBuffer(data) || data.length < 16) throw new Error('ciphertext AES-GCM truncado')
-  if (!Buffer.isBuffer(key) || key.length !== 32) throw new TypeError('AES-256-GCM requiere una clave de 32 bytes')
+  if (!Buffer.isBuffer(data) || data.length < 16) throw new ZyrixError('truncated AES-GCM ciphertext', { kind: ErrorKind.DECRYPT, errorCode: 'CIPHERTEXT_TRUNCATED' })
+  if (!Buffer.isBuffer(key) || key.length !== 32) throw new TypeError('AES-256-GCM requires a 32-byte key')
   const d = crypto.createDecipheriv('aes-256-gcm', key, iv(counter))
   if (aad !== undefined) d.setAAD(aad)
   d.setAuthTag(data.subarray(data.length - 16))

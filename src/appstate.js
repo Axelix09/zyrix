@@ -4,6 +4,7 @@ import { hkdf, hmacSha256, aesCbcEncrypt, aesCbcDecrypt } from './crypto.js'
 import { getChild, getChildren } from './binary.js'
 import { decryptMedia } from './mediacrypto.js'
 import { S_WHATSAPP_NET as S, num } from './util.js'
+import { ZyrixError, ErrorKind } from './errors.js'
 
 const COLLECTIONS = ['critical_block', 'critical_unblock_low', 'regular_high', 'regular_low', 'regular']
 const SET = 0
@@ -57,7 +58,7 @@ export default {
 
   async downloadBlob(ref) {
     const res = await fetch(`https://mmg.whatsapp.net${ref.directPath}`, { headers: { Origin: 'https://web.whatsapp.com' } })
-    if (!res.ok) throw new Error('descarga de blob fallida ' + res.status)
+    if (!res.ok) throw new ZyrixError('app-state blob download failed: ' + res.status, { kind: ErrorKind.PROTOCOL, errorCode: 'APPSTATE_BLOB_DOWNLOAD_FAILED' })
     return decryptMedia(Buffer.from(await res.arrayBuffer()), ref.mediaKey, 'md-app-state')
   },
 
@@ -104,17 +105,17 @@ export default {
         const keyData = rawKey?.keyData || rawKey
         if (!keyData) { missing++; continue }
         const blob = Buffer.from(record.value.blob)
-        if (blob.length < 64 || !record.index?.blob) throw new Error('registro app-state truncado')
+        if (blob.length < 64 || !record.index?.blob) throw new ZyrixError('truncated app-state record', { kind: ErrorKind.DECRYPT, errorCode: 'APPSTATE_RECORD_TRUNCATED' })
         const content = blob.subarray(0, -32)
         const mac = blob.subarray(-32)
         const expanded = deriveKeys(keyData)
         const expectedMac = contentMac(operation, content, keyId, expanded.valueMacKey)
-        if (!crypto.timingSafeEqual(expectedMac, mac)) throw new Error('MAC de valor app-state inválido')
+        if (!crypto.timingSafeEqual(expectedMac, mac)) throw new ZyrixError('invalid app-state value MAC', { kind: ErrorKind.DECRYPT, errorCode: 'APPSTATE_VALUE_MAC_INVALID' })
         const plain = aesCbcDecrypt(content.subarray(16), expanded.valueEncryptionKey, content.subarray(0, 16))
         const data = proto.SyncActionData.decode(plain)
         const expectedIndexMac = hmacSha256(Buffer.from(data.index), expanded.indexKey)
         const indexMac = Buffer.from(record.index.blob)
-        if (!crypto.timingSafeEqual(expectedIndexMac, indexMac)) throw new Error('MAC del índice app-state inválido')
+        if (!crypto.timingSafeEqual(expectedIndexMac, indexMac)) throw new ZyrixError('invalid app-state index MAC', { kind: ErrorKind.DECRYPT, errorCode: 'APPSTATE_INDEX_MAC_INVALID' })
         decoded.push({ index: JSON.parse(Buffer.from(data.index).toString('utf8')), value: data.value, operation: operation === REMOVE ? 'remove' : 'set', rawOperation: operation, record, valueMac: mac })
       } catch (e) { missing++; this.emit('error', e) }
     }
@@ -128,13 +129,13 @@ export default {
   },
 
   async appStatePatch({ type = 'critical_block', index, syncAction, apiVersion = 1, operation = SET }) {
-    if (!Array.isArray(index) || !index.length || !syncAction || typeof syncAction !== 'object') throw new TypeError('patch app-state inválido')
+    if (!Array.isArray(index) || !index.length || !syncAction || typeof syncAction !== 'object') throw new TypeError('invalid app-state patch')
     const state = this.auth.state
     const keyIdString = state.creds.myAppStateKeyId || Object.keys(state.keys.appStateKeys)[0]
-    if (!keyIdString) throw new Error('no hay clave app-state disponible')
+    if (!keyIdString) throw new ZyrixError('no app-state key available', { kind: ErrorKind.NO_SESSION, errorCode: 'APPSTATE_KEY_MISSING' })
     const rawKey = state.keys.appStateKeys[keyIdString]
     const keyData = rawKey?.keyData || rawKey
-    if (!keyData) throw new Error('clave app-state inválida')
+    if (!keyData) throw new ZyrixError('invalid app-state key', { kind: ErrorKind.DECRYPT, errorCode: 'APPSTATE_KEY_INVALID' })
     const keyId = Buffer.from(keyIdString, 'base64')
     const keys = deriveKeys(keyData)
     const indexBuffer = Buffer.from(JSON.stringify(index))

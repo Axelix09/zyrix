@@ -1,10 +1,7 @@
 import { proto } from '../proto.js'
-import { Curve } from '../crypto.js'
-import { getChild, getChildren, jidDecode, jidEncode, isJidGroup } from '../binary.js'
-import * as signal from '../signal.js'
-import * as senderkey from '../senderkey.js'
-import { S_WHATSAPP_NET as S, be, genId, pad, unpad, encodeAccount } from '../util.js'
-import { buildMessage, REVOKE_TYPE, EDIT_TYPE } from '../content.js'
+import { getChild, getChildren, isJidGroup } from '../binary.js'
+import { S_WHATSAPP_NET as S } from '../util.js'
+import { REVOKE_TYPE, EDIT_TYPE } from '../content.js'
 import { ZyrixError, ErrorKind } from '../errors.js'
 import { normalizeJid, jidNormalizedUser, isJidLid, isJidPN, sameUser as sameIdentity, makeIdentityMap } from '../jid.js'
 
@@ -111,7 +108,7 @@ const editAttribute = (message, chat) => {
 const ackError = (node) => {
   const code = node.attrs && node.attrs.error
   if (!code) return null
-  return Object.assign(new ZyrixError(`el servidor rechazó el mensaje (${code})`, { kind: ErrorKind.REJECTED, code: Number(code) || code, details: node }), { node })
+  return Object.assign(new ZyrixError(`the server rejected the message (${code})`, { kind: ErrorKind.REJECTED, code: Number(code) || code, details: node }), { node })
 }
 const encodeMsg = (m) => Buffer.from(proto.Message.encode(m).finish())
 

@@ -5,6 +5,7 @@ import * as signal from './signal.js'
 import * as senderkey from './senderkey.js'
 import { participantFromNode, nodeText } from './messages.js'
 import { parseMessage } from './incoming.js'
+import { ZyrixError, ErrorKind } from './errors.js'
 
 const children = (node) => (node && Array.isArray(node.content) ? node.content : [])
 
@@ -25,7 +26,7 @@ const chatPatch = (name, jid, option) => {
     case 'markRead':
       return { type: 'regular_low', apiVersion: 3, index: ['markChatAsRead', jid], syncAction: { markChatAsReadAction: { read: Boolean(option), messageRange: { lastMessageTimestamp: Math.floor(timestamp / 1000) } }, timestamp } }
     default:
-      throw new TypeError('modificación de chat no soportada: usa pin, mute, archive o markRead')
+      throw new TypeError('unsupported chat modification: use pin, mute, archive or markRead')
   }
 }
 
@@ -36,7 +37,7 @@ export default {
   },
 
   async sendReceipt(jid, participant, messageIds, type) {
-    if (!Array.isArray(messageIds) || !messageIds.length) throw new TypeError('messageIds requiere al menos un id')
+    if (!Array.isArray(messageIds) || !messageIds.length) throw new TypeError('messageIds requires at least one id')
     const attrs = { id: messageIds[0] }
     if (type === 'read' || type === 'read-self') attrs.t = String(Math.floor(Date.now() / 1000))
     if (type === 'sender' && isJidPN(jid)) {
@@ -65,7 +66,7 @@ export default {
   },
 
   async readMessages(keys) {
-    if (!Array.isArray(keys) || !keys.length) throw new TypeError('keys requiere al menos una clave de mensaje')
+    if (!Array.isArray(keys) || !keys.length) throw new TypeError('keys requires at least one message key')
     const type = await this.readReceiptType()
     const groups = new Map()
     for (const key of keys) {
@@ -82,8 +83,8 @@ export default {
       const name = (this.auth.state.creds.me && this.auth.state.creds.me.name) || 'zyrix'
       return this.sendNode({ tag: 'presence', attrs: { name, type } })
     }
-    if (!PRESENCE_STATES.has(type)) throw new TypeError('type debe ser available, unavailable, composing, recording o paused')
-    if (!to) throw new TypeError('to es obligatorio para composing, recording y paused')
+    if (!PRESENCE_STATES.has(type)) throw new TypeError('type must be available, unavailable, composing, recording or paused')
+    if (!to) throw new TypeError('to is required for composing, recording and paused')
     const jid = normalizeJid(to, S)
     const tag = type === 'paused' ? 'paused' : 'composing'
     return this.sendNode({ tag: 'chatstate', attrs: { to: jid }, content: [{ tag, attrs: type === 'recording' ? { media: 'audio' } : {} }] })
@@ -95,7 +96,7 @@ export default {
 
   async rejectCall(callId, callFrom) {
     const me = this.auth.state.creds.me
-    if (!me) throw new Error('la sesión aún no está registrada')
+    if (!me) throw new ZyrixError('the session is not registered yet', { kind: ErrorKind.NOT_READY, errorCode: 'SESSION_NOT_REGISTERED' })
     return this.query({
       tag: 'call',
       attrs: { from: me.id, to: callFrom },
@@ -105,7 +106,7 @@ export default {
 
   async onWhatsApp(...phones) {
     const numbers = phones.flat().map((p) => String(p).replace(/\D/g, '')).filter(Boolean)
-    if (!numbers.length) throw new TypeError('onWhatsApp requiere al menos un número')
+    if (!numbers.length) throw new TypeError('onWhatsApp requires at least one number')
     const sid = `${this.prefix}-${++this.counter}`
     const res = await this.query({
       tag: 'iq',
@@ -138,7 +139,7 @@ export default {
 
   async chatModify(modification, jid) {
     const entries = Object.entries(modification || {})
-    if (entries.length !== 1) throw new TypeError('chatModify espera exactamente una modificación')
+    if (entries.length !== 1) throw new TypeError('chatModify expects exactly one modification')
     const [name, option] = entries[0]
     return this.appStatePatch(chatPatch(name, normalizeJid(jid, S), option))
   },

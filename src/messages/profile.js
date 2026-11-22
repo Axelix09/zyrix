@@ -1,14 +1,9 @@
-import { proto } from '../proto.js'
-import { Curve } from '../crypto.js'
-import { getChild, getChildren, jidDecode, jidEncode, isJidGroup } from '../binary.js'
-import * as signal from '../signal.js'
-import * as senderkey from '../senderkey.js'
-import { S_WHATSAPP_NET as S, be, genId, pad, unpad, encodeAccount } from '../util.js'
-import { buildMessage, REVOKE_TYPE, EDIT_TYPE } from '../content.js'
+import { getChild, getChildren } from '../binary.js'
+import { S_WHATSAPP_NET as S } from '../util.js'
 import { ZyrixError, ErrorKind } from '../errors.js'
 import { normalizeJid, jidNormalizedUser, isJidLid, isJidPN, sameUser as sameIdentity, makeIdentityMap } from '../jid.js'
 
-import { normalize, normalizeQuoted, userJid, sameUser, participantFromNode, parseGroupMetadata, nodeText, messageType, editAttribute, ackError, encodeMsg, ackAttrs, MAX_RETRIES, SKIP } from './shared.js'
+import { nodeText } from './shared.js'
 
 export default {
   resolveJid(value) {
@@ -61,12 +56,12 @@ export default {
   },
 
   async updateProfileStatus(status) {
-    if (typeof status !== 'string' || status.length > 139) throw new RangeError('status debe tener entre 0 y 139 caracteres')
+    if (typeof status !== 'string' || status.length > 139) throw new RangeError('status must be between 0 and 139 characters')
     return this.query({ tag: 'iq', attrs: { to: S, type: 'set', xmlns: 'status' }, content: [{ tag: 'status', attrs: {}, content: Buffer.from(status, 'utf8') }] })
   },
 
   async updateProfileName(name) {
-    if (typeof name !== 'string' || !name.trim() || name.length > 25) throw new RangeError('name debe tener entre 1 y 25 caracteres')
+    if (typeof name !== 'string' || !name.trim() || name.length > 25) throw new RangeError('name must be between 1 and 25 characters')
     const hasAppStateKey = Boolean(this.auth.state.creds.myAppStateKeyId || Object.keys(this.auth.state.keys.appStateKeys).length)
     const response = hasAppStateKey
       ? await this.appStatePatch({ type: 'critical_block', index: ['setting_pushName'], apiVersion: 1, syncAction: { pushNameSetting: { name } } })
@@ -77,7 +72,7 @@ export default {
   },
 
   async updateProfilePicture(jid, image) {
-    if (!jid || !image || typeof image.length !== 'number' || image.length > this.maxMediaBytes) throw new TypeError('jid o imagen de perfil inválida')
+    if (!jid || !image || typeof image.length !== 'number' || image.length > this.maxMediaBytes) throw new TypeError('invalid jid or profile picture')
     const normalized = jidNormalizedUser(jid)
     const me = this.auth.state.creds.me?.id
     const identities = makeIdentityMap(this.auth.state)
@@ -86,7 +81,7 @@ export default {
   },
 
   async removeProfilePicture(jid) {
-    if (!jid) throw new TypeError('jid requerido')
+    if (!jid) throw new TypeError('jid is required')
     const normalized = jidNormalizedUser(jid)
     const me = this.auth.state.creds.me?.id
     const identities = makeIdentityMap(this.auth.state)
@@ -95,7 +90,7 @@ export default {
   },
 
   async profilePictureUrl(jid, type = 'preview') {
-    if (!['preview', 'image'].includes(type)) throw new TypeError('type debe ser preview o image')
+    if (!['preview', 'image'].includes(type)) throw new TypeError('type must be preview or image')
     const normalized = jidNormalizedUser(jid)
     const response = await this.query({ tag: 'iq', attrs: { target: normalized, to: S, type: 'get', xmlns: 'w:profile:picture' }, content: [{ tag: 'picture', attrs: { type } }] })
     return getChild(response, 'picture')?.attrs?.url
@@ -123,15 +118,15 @@ export default {
   },
 
   async updateBlockStatus(jid, action) {
-    if (!['block', 'unblock'].includes(action)) throw new TypeError('action debe ser block o unblock')
+    if (!['block', 'unblock'].includes(action)) throw new TypeError('action must be block or unblock')
     const normalized = jidNormalizedUser(jid)
     const identities = makeIdentityMap(this.auth.state)
     const pn = isJidPN(normalized) ? normalized : identities.map.get(normalized)
     const lid = isJidLid(normalized) ? normalized : identities.map.get(normalized) && isJidLid(identities.map.get(normalized)) ? identities.map.get(normalized) : normalized
-    if (!isJidLid(lid)) throw new Error('se necesita un mapeo LID para bloquear este usuario')
+    if (!isJidLid(lid)) throw new ZyrixError('a LID mapping is needed to block this user', { kind: ErrorKind.INVALID, errorCode: 'LID_MAPPING_REQUIRED' })
     const attrs = { action, jid: lid }
     if (action === 'block') {
-      if (!pn || !isJidPN(pn)) throw new Error('se necesita el PN asociado al LID para bloquear')
+      if (!pn || !isJidPN(pn)) throw new ZyrixError('the PN linked to this LID is needed to block', { kind: ErrorKind.INVALID, errorCode: 'LID_MAPPING_REQUIRED' })
       attrs.pn_jid = pn
     }
     return this.query({ tag: 'iq', attrs: { xmlns: 'blocklist', to: S, type: 'set' }, content: [{ tag: 'item', attrs }] })
@@ -147,9 +142,9 @@ export default {
 
   async updatePrivacyCategory(name, value) {
     const allowed = new Set(['all', 'contacts', 'contact_blacklist', 'none', 'match_last_seen'])
-    if (!allowed.has(value)) throw new TypeError('valor de privacidad inválido')
+    if (!allowed.has(value)) throw new TypeError('invalid privacy value')
     const names = new Set(['last', 'online', 'profile', 'status', 'readreceipts', 'groupadd', 'messages', 'calladd'])
-    if (!names.has(name)) throw new TypeError('categoría de privacidad inválida')
+    if (!names.has(name)) throw new TypeError('invalid privacy category')
     const response = await this.query({ tag: 'iq', attrs: { xmlns: 'privacy', to: S, type: 'set' }, content: [{ tag: 'privacy', attrs: {}, content: [{ tag: 'category', attrs: { name, value } }] }] })
     this.privacySettings = { ...(this.privacySettings || {}), [name]: value }
     return response
@@ -169,7 +164,7 @@ export default {
   updateCallPrivacy(value) { return this.updatePrivacyCategory('calladd', value) },
 
   async updateDefaultDisappearingMode(seconds) {
-    if (!Number.isInteger(seconds) || seconds < 0 || seconds > 7776000) throw new RangeError('duración predeterminada inválida')
+    if (!Number.isInteger(seconds) || seconds < 0 || seconds > 7776000) throw new RangeError('invalid default duration')
     return this.query({ tag: 'iq', attrs: { xmlns: 'disappearing_mode', to: S, type: 'set' }, content: [{ tag: 'disappearing_mode', attrs: { duration: String(seconds) } }] })
   },
 }

@@ -91,7 +91,7 @@ test('adaptador de auth persiste y restaura buffers sin exponer ni tocar archivo
   assert.deepEqual(restored.state.creds.testBuffer, Buffer.from([0, 1, 254, 255]))
   assert.deepEqual(restored.state.keys.sessions['device-test'].record, Buffer.from('fixture'))
   await restored.flush()
-  await assert.rejects(useAdapterAuthState({ read: () => '{', write() {} }), /No se pudo leer la sesión/)
+  await assert.rejects(useAdapterAuthState({ read: () => '{', write() {} }), { name: 'ZyrixError', errorCode: 'SESSION_READ_FAILED' })
 })
 
 test('estado de archivo se escribe solo dentro de un temporal y usa permisos restrictivos', async (t) => {
@@ -122,14 +122,14 @@ test('snapshot cifrado autentica integridad y falla con clave incorrecta', () =>
   const encrypted = serializeAuthSnapshot(state, key)
   assert.equal(encrypted.includes('secreto'), false)
   assert.deepEqual(parseAuthSnapshot(encrypted, key).keys.sessions.one.key, Buffer.from([1, 2, 3]))
-  assert.throws(() => parseAuthSnapshot(encrypted, 'otra clave que tampoco coincide'), /no se pudo descifrar/)
-  assert.throws(() => parseAuthSnapshot(encrypted), /sesión está cifrada/)
+  assert.throws(() => parseAuthSnapshot(encrypted, 'otra clave que tampoco coincide'), { errorCode: 'SESSION_DECRYPT_FAILED' })
+  assert.throws(() => parseAuthSnapshot(encrypted), { errorCode: 'SESSION_ENCRYPTED' })
 })
 
 test('descarga remota de media rechaza direcciones loopback y privadas antes de hacer fetch', async () => {
-  await assert.rejects(toBuffer({ url: 'http://127.0.0.1:8080/metadata' }, 1024), /URL de media no permitida/)
-  await assert.rejects(toBuffer({ url: 'http://169.254.169.254/latest/meta-data/' }, 1024), /URL de media no permitida/)
-  await assert.rejects(toBuffer({ url: 'http://localhost:8080/file' }, 1024), /URL de media no permitida/)
+  await assert.rejects(toBuffer({ url: 'http://127.0.0.1:8080/metadata' }, 1024), { errorCode: 'MEDIA_URL_BLOCKED' })
+  await assert.rejects(toBuffer({ url: 'http://169.254.169.254/latest/meta-data/' }, 1024), { errorCode: 'MEDIA_URL_BLOCKED' })
+  await assert.rejects(toBuffer({ url: 'http://localhost:8080/file' }, 1024), { errorCode: 'MEDIA_URL_BLOCKED' })
 })
 
 
@@ -150,7 +150,7 @@ test('sesión heredada se migra a snapshot cifrado y rechaza claves equivocadas'
   assert.equal(JSON.parse(backup).format, 'zyrix-auth-encrypted-v1')
   assert.equal(disk.includes('no-plaintext'), false)
   assert.deepEqual(useFileAuthState(dir, { encryptionKey: key }).state.keys.sessions['device-test'].secret, Buffer.from('no-plaintext'))
-  assert.throws(() => useFileAuthState(dir, { encryptionKey: 'a different secret long enough' }), /Archivo de sesión y respaldo corruptos/)
+  assert.throws(() => useFileAuthState(dir, { encryptionKey: 'a different secret long enough' }), { errorCode: 'SESSION_CORRUPT' })
 })
 
 
@@ -163,7 +163,7 @@ test('adapter con clave cifra el documento completo y requiere esa clave para re
   await auth.flush()
   assert.equal(adapter.read().includes('confidential-auth'), false)
   assert.equal((await useAdapterAuthState(adapter, { encryptionKey: key })).state.creds.privateMarker, 'confidential-auth')
-  await assert.rejects(useAdapterAuthState(adapter), /sesión está cifrada/)
+  await assert.rejects(useAdapterAuthState(adapter), { errorCode: 'SESSION_ENCRYPTED' })
 })
 
 test('flush del adapter rechaza errores de escritura y permite reintentar el estado pendiente', async () => {
@@ -188,7 +188,7 @@ test('flush del adapter rechaza errores de escritura y permite reintentar el est
 })
 
 test('clave de cifrado demasiado corta se rechaza al crear estado de sesión', () => {
-  assert.throws(() => useFileAuthState(path.join(tmpdir(), 'zyrix-invalid-key'), { encryptionKey: 'short' }), /al menos 16 bytes/)
+  assert.throws(() => useFileAuthState(path.join(tmpdir(), 'zyrix-invalid-key'), { encryptionKey: 'short' }), /at least 16 bytes/)
 })
 
 
@@ -261,7 +261,7 @@ test('downloadMediaToFile transmite, autentica y descifra a disco sin publicar M
     globalThis.fetch = async () => new Response(tampered, { status: 200 })
     await assert.rejects(mediaMixin.downloadMediaToFile.call(fake, {
       imageMessage: { url: 'https://mmg.whatsapp.net/file', mediaKey: encrypted.mediaKey }
-    }, tamperedPath), /MAC de media inválido/)
+    }, tamperedPath), { errorCode: 'MEDIA_MAC_INVALID' })
     await assert.rejects(readFile(tamperedPath), { code: 'ENOENT' })
   } finally {
     globalThis.fetch = originalFetch
