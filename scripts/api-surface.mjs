@@ -61,7 +61,10 @@ export function buildSurface(root = projectRoot) {
 export async function loadRuntimeExports(root = projectRoot) {
   const runtime = {}
   for (const { declarations, runtime: modulePath } of MODULES) {
-    const url = `${pathToFileURL(path.join(root, modulePath)).href}?api-surface=${Date.now()}`
+    // Sin query de cache-busting: una segunda URL crea una instancia distinta del
+    // módulo y Node la reporta como no cubierta, falseando --experimental-test-coverage.
+    // Los módulos no tienen estado de nivel superior que requiera recarga.
+    const url = pathToFileURL(path.join(root, modulePath)).href
     const loaded = await import(url)
     runtime[declarations] = Object.keys(loaded).sort()
   }

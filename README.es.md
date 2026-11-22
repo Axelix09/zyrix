@@ -6,6 +6,8 @@ Zyrix es una biblioteca de Node.js para hacer bots y automatizaciones sobre What
 
 El protocolo de WhatsApp Web cambia sin avisar y Zyrix no tiene relación con WhatsApp ni con Meta. El autor ya probó Zyrix manualmente con WhatsApp real; las pruebas automatizadas no se conectan al servicio ni cubren todas las cuentas o funciones, así que los cambios de protocolo igual requieren volver a validar. Úsalo solo con cuentas y dispositivos que sean tuyos o que tengas autorizados.
 
+> **Estado del proyecto: beta (0.21.x).** La suite offline tiene 243 tests y el job de cobertura de CI exige al menos 90% de líneas en `src/` (94,87% en 0.21.0). La interoperabilidad con una cuenta real de WhatsApp **todavía no está verificada** por este repositorio, y la criptografía **no** tiene revisión independiente. Usar un cliente no oficial puede hacer que restrinjan o baneen una cuenta. Leé [SECURITY.md](SECURITY.md), [REAL-WORLD-TESTING.md](REAL-WORLD-TESTING.md) y [CONTRIBUTING.md](CONTRIBUTING.md) antes de confiar en Zyrix en producción.
+
 ## Por qué Zyrix
 
 - **Las sesiones se cifran en reposo.** AES-256-GCM con clave derivada por scrypt, escritura atómica, permisos `0600`, copia de respaldo y rechazo de symlinks. Es opcional y está documentado como tal: la clave vive fuera de la carpeta de sesión.
@@ -263,6 +265,8 @@ Si el grupo tiene mensajes temporales y no indicas `expiration`, Zyrix usa la du
 
 `sendMessage` mira la forma del contenido y lo manda al método que corresponde. Entiende `{ image, caption }`, `{ video, caption }`, `{ audio, ptt }`, `{ document, fileName }`, `{ sticker }`, `{ buttons, text }`, `{ list }`, `{ poll }`, `{ location }`, `{ contact }`, `{ contacts }`, `{ delete: key }` y `{ edit: key, text }`. También acepta objetos protobuf completos.
 
+La superficie de API cubre las llamadas centrales de envío/recepción, grupos, media, privacidad y app-state, así que portar código es mecánico. Eso **no** es una promesa de paridad de madurez: Baileys y `zapo-js` son más viejos y están probados contra cuentas reales, y `zapo-js` es un 1.0 estable con backends multi-sesión. Zyrix sigue en beta hasta completar la lista de [REAL-WORLD-TESTING.md](REAL-WORLD-TESTING.md).
+
 ### Confirmación de envío
 
 `sendMessage` y los `send*` esperan el ack del servidor y devuelven `{ key, message, status, messageTimestamp }`. El `status` es `'sent'`, o `'unconfirmed'` si pasaron 30 segundos sin ack. Si el servidor rechaza el mensaje se lanza un error con `code`. Si no se puede cifrar para ningún dispositivo del destinatario, también se lanza un error en lugar de enviar en silencio, y los dispositivos que se omitieron se avisan con el evento `send.warning`.
@@ -383,6 +387,8 @@ try {
 ```
 
 ## Seguridad
+
+Usar un cliente no oficial es una decisión sobre tu cuenta: los Términos de Servicio de WhatsApp no autorizan esta implementación del protocolo, y un número puede quedar restringido o baneado. Ese riesgo es tuyo, no de la licencia de la librería. El modelo de amenazas, los riesgos residuales (incluido `trustPolicy: 'update'` y la ausencia de revisión criptográfica independiente) y el proceso de divulgación están en [SECURITY.md](SECURITY.md).
 
 ### Opciones del socket
 

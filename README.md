@@ -6,6 +6,8 @@ Zyrix is a Node.js library for WhatsApp bots and automation. It implements the W
 
 WhatsApp Web's protocol changes without notice, and Zyrix is not affiliated with WhatsApp or Meta. The author has tested Zyrix manually against a real WhatsApp account; the automated suite does not connect to the service and does not cover every account or feature, so protocol changes still need re-validation. Use it only with accounts and devices you own or are authorised to use.
 
+> **Project status: beta (0.21.x).** The offline suite has 243 tests and the CI coverage job requires at least 90% of lines across `src/` (94.87% at 0.21.0). Interoperability with a real WhatsApp account is **not yet verified** by this repository, and the cryptography has **not** been independently reviewed. Using an unofficial client can get an account restricted or banned. Read [SECURITY.md](SECURITY.md), [REAL-WORLD-TESTING.md](REAL-WORLD-TESTING.md) and [CONTRIBUTING.md](CONTRIBUTING.md) before relying on Zyrix in production.
+
 ## Why Zyrix
 
 - **Sessions are encrypted at rest.** AES-256-GCM with a scrypt-derived key, atomic writes, `0600` permissions, a backup copy and symlink rejection. Opt-in, and documented as such: the key lives outside the session folder.
@@ -243,6 +245,8 @@ The socket uses `captureRejections`. If an `async` listener throws, the error re
 
 Aliases exist so the migration is mechanical: `sock.ev` is the emitter itself (`sock.ev.on(...)` does the same as `sock.on(...)`), `sock.user` is `auth.state.creds.me` and `sock.authState` is the connection's authentication state.
 
+The API surface covers the core send/receive, groups, media, privacy and app-state calls, so porting code is mechanical. That is **not** a claim of maturity parity: Baileys and `zapo-js` are older and battle-tested against real accounts, and `zapo-js` is a stable 1.0 with multi-session storage backends. Zyrix is beta until the checklist in [REAL-WORLD-TESTING.md](REAL-WORLD-TESTING.md) is filled in.
+
 ## Sending messages
 
 ### Methods
@@ -386,6 +390,8 @@ try {
 ```
 
 ## Security
+
+Using an unofficial client is a decision about your account: WhatsApp's Terms of Service do not authorise this protocol implementation, and a number can be restricted or banned. That risk is yours, not the library's licence. The threat model, residual risks (including `trustPolicy: 'update'` and the absence of an independent cryptographic review) and the disclosure process are in [SECURITY.md](SECURITY.md).
 
 ### Socket options
 

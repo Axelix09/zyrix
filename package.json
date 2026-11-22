@@ -1,6 +1,6 @@
 {
   "name": "@axel-dev09/zyrix",
-  "version": "0.20.1",
+  "version": "0.21.0",
   "description": "WhatsApp Web protocol for Node.js over a WebSocket, with encrypted sessions and a built-in bot runtime",
   "author": "Axelix09",
   "license": "MIT",
@@ -48,6 +48,9 @@
     "README.es.md",
     "LICENSE",
     "LICENSING.md",
+    "SECURITY.md",
+    "CONTRIBUTING.md",
+    "REAL-WORLD-TESTING.md",
     "THIRD_PARTY_NOTICES.md",
     "THIRD_PARTY_LICENSES"
   ],

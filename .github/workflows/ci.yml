@@ -41,8 +41,14 @@ jobs:
       - name: Tests
         run: npm test
 
-      - name: Coverage report
+      # Node 22 supports the coverage threshold flags (Node 20 does not), so the gate runs
+      # there. Keep the report in the other matrix entries for visibility.
+      - name: Coverage report and 90% line gate
         if: matrix.node == 22
+        run: node --test --experimental-test-coverage --test-coverage-lines=90
+
+      - name: Coverage report
+        if: matrix.node != 22
         run: npm run test:coverage
 
       - name: Verify published package contents
