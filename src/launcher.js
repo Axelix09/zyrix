@@ -351,7 +351,8 @@ class Launcher extends EventEmitter {
     for (const signal of this.signalList) {
       if (this.signalHandlers.has(signal)) continue
       const handler = async () => {
-        if (this.stopping) return process.exit(1)
+        // Después de stop() una señal ya no es nuestra: no debe matar el proceso por accidente.
+        if (this.stopping) return
         this.emit('signal', signal)
         await withTimeout(this.stop(), 8000)
         if (this.exitOnSignal) process.exit(0)
@@ -369,6 +370,7 @@ class Launcher extends EventEmitter {
   async stop() {
     if (this.stopping && !this.current) return
     this.stopping = true
+    this.unhookSignals()
     clearTimeout(this.senderKeyTimer)
     this.senderKeyTimer = null
     if (this.current) await this.retire(this.current, { logout: false })
@@ -377,6 +379,7 @@ class Launcher extends EventEmitter {
 
   async logout() {
     this.stopping = true
+    this.unhookSignals()
     if (this.current) await this.retire(this.current, { logout: true })
     if (this.canClear()) await this.clear()
     this.emit('stopped')

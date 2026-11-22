@@ -71,7 +71,8 @@ const encrypt = (state, group, address, plaintext) => {
 }
 
 const decrypt = (state, group, address, data) => {
-  const rec = state.keys.senderKeys[nameOf(group, address)]
+  const name = nameOf(group, address)
+  const rec = state.keys.senderKeys[name]
   if (!rec) throw new ZyrixError('no sender key', { kind: ErrorKind.NO_SESSION, errorCode: 'SENDER_KEY_MISSING' })
   const buf = Buffer.from(data)
   if (buf.length < 66 || buf[0] !== VERSION) throw new ZyrixError('invalid sender key message', { kind: ErrorKind.DECRYPT, errorCode: 'SENDER_KEY_MALFORMED' })
@@ -81,26 +82,39 @@ const decrypt = (state, group, address, data) => {
   if (body[1] !== rec.keyId) throw new ZyrixError('sender key id mismatch', { kind: ErrorKind.DECRYPT, errorCode: 'SENDER_KEY_ID_MISMATCH' })
   if (!Curve.verify(rec.signingPublic, signed, sig)) throw new ZyrixError('invalid sender key signature', { kind: ErrorKind.DECRYPT, errorCode: 'SENDER_KEY_SIGNATURE_INVALID' })
   const target = body[2] || 0
+  // El ratchet avanza sobre variables locales. iteration, chain, skipped y las claves nuevas
+  // se publican recién después de que el descifrado CBC (y su padding) hayan sido verificados.
+  // Un mensaje con firma válida pero padding inválido deja el estado byte a byte igual.
   let seed
-  if (target < rec.iteration) {
-    const k = rec.skipped[target]
+  let chain = rec.chain
+  let iteration = rec.iteration
+  let skipped = rec.skipped
+  let commitSkipped
+  if (target < iteration) {
+    const k = skipped[target]
     if (!k) throw new ZyrixError('duplicate or old message', { kind: ErrorKind.DECRYPT, errorCode: 'SENDER_KEY_DUPLICATE' })
     seed = Buffer.from(k)
-    delete rec.skipped[target]
+    commitSkipped = () => { delete skipped[target] }
   } else {
-    if (target - rec.iteration > MAX_SKIP) throw new ZyrixError('iteration jump too large', { kind: ErrorKind.DECRYPT, errorCode: 'SENDER_KEY_JUMP_TOO_LARGE' })
-    while (rec.iteration < target) {
-      rec.skipped[rec.iteration] = msgSeed(rec.chain)
-      if (Object.keys(rec.skipped).length > MAX_SKIPPED) delete rec.skipped[rec.iteration - MAX_SKIPPED]
-      rec.chain = nextChain(rec.chain)
-      rec.iteration++
+    if (target - iteration > MAX_SKIP) throw new ZyrixError('iteration jump too large', { kind: ErrorKind.DECRYPT, errorCode: 'SENDER_KEY_JUMP_TOO_LARGE' })
+    skipped = { ...skipped }
+    while (iteration < target) {
+      skipped[iteration] = msgSeed(chain)
+      if (Object.keys(skipped).length > MAX_SKIPPED) delete skipped[iteration - MAX_SKIPPED]
+      chain = nextChain(chain)
+      iteration++
     }
-    seed = msgSeed(rec.chain)
-    rec.chain = nextChain(rec.chain)
-    rec.iteration++
+    seed = msgSeed(chain)
+    chain = nextChain(chain)
+    iteration++
   }
   const { iv, cipherKey } = messageKeys(seed)
-  return aesCbcDecrypt(body[3], cipherKey, iv)
+  const plaintext = aesCbcDecrypt(body[3], cipherKey, iv)
+  if (commitSkipped) commitSkipped()
+  rec.chain = chain
+  rec.iteration = iteration
+  rec.skipped = skipped
+  return plaintext
 }
 
 const resetOwn = (state, group, address) => {

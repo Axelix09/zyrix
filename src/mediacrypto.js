@@ -31,7 +31,13 @@ const encryptMedia = (buffer, type) => {
   return { mediaKey, body, fileSha256: sha256(buffer), fileEncSha256: sha256(body), fileLength: buffer.length }
 }
 
-const encryptMediaFile = async (inputPath, outputPath, type) => {
+// Cifra desde un descriptor ya abierto: el tamaño y el contenido que se validan y el que se
+// cifra son el mismo archivo, sin ventana TOCTOU entre stat(path) y open(path).
+const encryptMediaFileFromHandle = async (handle, outputPath, type, { maxBytes = Infinity } = {}) => {
+  const before = await handle.stat()
+  if (!before.isFile()) throw new ZyrixError('media path must be a regular file', { kind: ErrorKind.MEDIA, errorCode: 'MEDIA_NOT_A_FILE' })
+  if (!(maxBytes === Infinity || Number.isSafeInteger(maxBytes) && maxBytes > 0)) throw new TypeError('maxBytes must be a positive integer')
+  if (before.size > maxBytes) throw new RangeError(`file exceeds the ${maxBytes}-byte limit`)
   const mediaKey = crypto.randomBytes(32)
   const { iv, cipherKey, macKey } = expand(mediaKey, type)
   const cipher = crypto.createCipheriv('aes-256-cbc', cipherKey, iv)
@@ -45,8 +51,12 @@ const encryptMediaFile = async (inputPath, outputPath, type) => {
     Promise.race([new Promise((resolve) => (out.write(chunk) ? resolve() : out.once('drain', resolve))), failed])
   let fileLength = 0
   try {
-    for await (const chunk of fs.createReadStream(inputPath)) {
+    const source = handle.createReadStream({ autoClose: false, start: 0 })
+    for await (const chunk of source) {
       fileLength += chunk.length
+      // El límite se aplica durante toda la lectura, no solo antes: un archivo que crece en
+      // paralelo no puede saltarse el contador.
+      if (fileLength > maxBytes) throw new RangeError(`file exceeds the ${maxBytes}-byte limit`)
       plainHash.update(chunk)
       const enc = cipher.update(chunk)
       if (enc.length) {
@@ -68,11 +78,25 @@ const encryptMediaFile = async (inputPath, outputPath, type) => {
       out.once('error', reject)
       out.end(resolve)
     })
+    const after = await handle.stat()
+    if (after.size !== before.size || after.mtimeMs !== before.mtimeMs) {
+      throw new ZyrixError('the media file changed while it was being encrypted', { kind: ErrorKind.MEDIA, errorCode: 'MEDIA_FILE_CHANGED' })
+    }
   } catch (error) {
     out.destroy()
     throw error
   }
   return { mediaKey, fileSha256: plainHash.digest(), fileEncSha256: encHash.digest(), fileLength }
+}
+
+const encryptMediaFile = async (inputPath, outputPath, type, options = {}) => {
+  const flags = fs.constants.O_RDONLY | (fs.constants.O_NOFOLLOW ?? 0)
+  const handle = await fs.promises.open(inputPath, flags)
+  try {
+    return await encryptMediaFileFromHandle(handle, outputPath, type, options)
+  } finally {
+    await handle.close().catch(() => {})
+  }
 }
 
 const decryptMediaToFile = async (encryptedStream, outputPath, mediaKey, type, { maxBytes = Infinity } = {}) => {
@@ -154,4 +178,4 @@ const decryptMedia = (body, mediaKey, type) => {
   return aesCbcDecrypt(enc, cipherKey, iv)
 }
 
-export { encryptMedia, encryptMediaFile, decryptMedia, decryptMediaToFile }
+export { encryptMedia, encryptMediaFile, encryptMediaFileFromHandle, decryptMedia, decryptMediaToFile }

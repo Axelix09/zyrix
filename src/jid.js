@@ -10,6 +10,9 @@ const decodeRequired = (value) => {
   return decoded
 }
 
+// Parte de usuario (sin dispositivo ni servidor) de un JID.
+const userOf = (jid) => (jid ? String(jid).split('@')[0].split(':')[0] : undefined)
+
 const jidNormalizedUser = (value) => {
   const d = decodeRequired(value)
   return jidEncode(d.user, d.server)
@@ -89,5 +92,6 @@ export {
   isJidPN,
   isJidGroup,
   sameUser,
-  makeIdentityMap
+  makeIdentityMap,
+  userOf
 }

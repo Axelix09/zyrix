@@ -7,6 +7,9 @@ const WA_HEADER = Buffer.from([87, 65, 6, 3])
 const MAX_FRAME_SIZE = 0xffffff
 const MAX_BUFFER_SIZE = MAX_FRAME_SIZE * 2 + 6
 
+// Contrato: un Transport es de un solo uso. El handshake de Noise y el prefijo WA_HEADER
+// no son reutilizables, así que connect() después de un cierre lanza TRANSPORT_REUSED en
+// vez de arrastrar buffer, headerSent u oyentes del intento anterior.
 class Transport extends EventEmitter {
   constructor() {
     super()
@@ -16,9 +19,12 @@ class Transport extends EventEmitter {
     this.opened = false
     this.openTimer = null
     this.lastError = null
+    this.used = false
   }
 
   connect() {
+    if (this.used) throw new ZyrixError('a Transport cannot be reused after connect(); create a new one', { kind: ErrorKind.NOT_READY, errorCode: 'TRANSPORT_REUSED' })
+    this.used = true
     this.lastError = null
     this.ws = new WebSocket(WA_URL, {
       origin: 'https://web.whatsapp.com',
@@ -75,6 +81,7 @@ class Transport extends EventEmitter {
   }
 
   onData(chunk) {
+    if (!this.used) throw new ZyrixError('the transport has not been connected', { kind: ErrorKind.NOT_READY, errorCode: 'TRANSPORT_NOT_CONNECTED' })
     if (!Buffer.isBuffer(chunk)) chunk = Buffer.from(chunk)
     if (this.buffer.length + chunk.length > MAX_BUFFER_SIZE) throw new RangeError('transport buffer exceeds the allowed limit')
     this.buffer = Buffer.concat([this.buffer, chunk])

@@ -20,6 +20,8 @@ import features from './features.js'
 import { socketMethods } from './content.js'
 import { socketMixin } from './context.js'
 import { defineNamespaces } from './namespaces.js'
+import { makeNewslettersApi } from './newsletters.js'
+import { makeCommunitiesApi } from './communities.js'
 import { ZyrixError, ErrorKind } from './errors.js'
 
 const FALLBACK_VERSION = [2, 3000, 1043857760]
@@ -130,8 +132,14 @@ class Socket extends EventEmitter {
     if (getMessage !== undefined && typeof getMessage !== 'function') throw new TypeError('getMessage must be a function')
     if (!['update', 'tofu'].includes(trustPolicy) && typeof trustPolicy !== 'function') throw new TypeError("trustPolicy must be 'update', 'tofu' or a function")
     nonNegative(minSendIntervalMs, 'minSendIntervalMs')
-    nonNegative(keepAliveIntervalMs, 'keepAliveIntervalMs')
+    // 0 desactiva el keep-alive. Cualquier otro valor debe ser un entero positivo razonable:
+    // setInterval(..., 0) dispara en bucle y NaN/Infinity no tienen semántica útil.
+    if (!Number.isFinite(keepAliveIntervalMs) || keepAliveIntervalMs < 0) throw new TypeError('keepAliveIntervalMs must be a finite, non-negative number (0 disables keep-alive)')
+    if (keepAliveIntervalMs > 0 && (!Number.isInteger(keepAliveIntervalMs) || keepAliveIntervalMs > 24 * 60 * 60 * 1000)) {
+      throw new RangeError('keepAliveIntervalMs must be a positive integer of at most 24 hours, or 0 to disable keep-alive')
+    }
     nonNegative(queryTimeoutMs, 'queryTimeoutMs')
+    if (!Number.isFinite(queryTimeoutMs) || queryTimeoutMs <= 0) throw new TypeError('queryTimeoutMs must be a positive number')
     this.auth = auth
     this.version = version
     this.browser = browser
@@ -149,8 +157,21 @@ class Socket extends EventEmitter {
     this.reconnectEnabled = reconnect
     this.maxReconnectAttempts = maxReconnectAttempts
     this.queryTimeoutMs = queryTimeoutMs
-    this.signalHooks = { trustPolicy, onIdentityChange: (info) => this.emit('identity.changed', info) }
+    this.identityWarnings = new TTLCache({ max: 200, ttl: 60000 })
+    this.signalHooks = {
+      trustPolicy,
+      onIdentityChange: (info) => {
+        this.emit('identity.changed', info)
+        // Bajo la política por defecto (`update`) el reemplazo es automático: si nadie escucha
+        // el evento, al menos queda un aviso explícito y el registro en identityHistory.
+        if (info?.accepted && this.listenerCount('identity.changed') === 0 && !this.identityWarnings.has(info.id)) {
+          this.identityWarnings.set(info.id, true)
+          this.logger.warn?.({ identity: info }, 'the Signal identity key changed and was accepted by trustPolicy=update')
+        }
+      }
+    }
     this.pending = new Map()
+    this.pingInFlight = false
     this.closing = false
     this.pairingMode = false
     this.pairingReady = false
@@ -187,6 +208,22 @@ class Socket extends EventEmitter {
       process.emitWarning(err?.message || String(err), { type: 'ZyrixWarning', code: typeof err?.code === 'string' ? err.code : undefined, detail: 'Register sock.on(\'error\', ...) or pass the logger option to handle these errors.' })
     })
     this.on('messages.upsert', (event) => this.emitDerived(event))
+    // Canales y comunidades se anuncian en README y tipos; deben existir de verdad.
+    Object.defineProperty(this, 'newsletters', { value: makeNewslettersApi(this), enumerable: false, configurable: true })
+    Object.defineProperty(this, 'communities', { value: makeCommunitiesApi(this), enumerable: false, configurable: true })
+  }
+
+  // Rechaza exactamente una vez todas las queries pendientes. Es idempotente: llamarla dos
+  // veces (p. ej. terminate() y luego el 'close' del transporte) no deja Promises colgadas
+  // ni rechaza dos veces la misma entrada.
+  rejectPending(error = new ZyrixError('the connection was closed', { kind: ErrorKind.CLOSED, errorCode: 'CONNECTION_CLOSING' })) {
+    if (!this.pending.size) return
+    const entries = [...this.pending.values()]
+    this.pending.clear()
+    for (const entry of entries) {
+      clearTimeout(entry.timer)
+      entry.reject(error)
+    }
   }
 
   get isOpen() {
@@ -405,17 +442,24 @@ class Socket extends EventEmitter {
     node.attrs = node.attrs || {}
     node.attrs.id = node.attrs.id || `${this.prefix}-${++this.counter}`
     const id = node.attrs.id
+    if (this.pending.has(id)) {
+      return Promise.reject(new ZyrixError(`a query with id ${String(id)} is already pending`, { kind: ErrorKind.INVALID, errorCode: 'QUERY_DUPLICATE_ID' }))
+    }
     return new Promise((resolve, reject) => {
-      const timer = setTimeout(() => {
+      const entry = { resolve, reject, timer: null }
+      // El timer solo puede borrar su propia entrada: una respuesta tardía o un id reutilizado
+      // no debe eliminar una query nueva con el mismo id.
+      entry.timer = setTimeout(() => {
+        if (this.pending.get(id) !== entry) return
         this.pending.delete(id)
         reject(new ZyrixError('query timed out', { kind: ErrorKind.TIMEOUT }))
       }, timeout)
-      this.pending.set(id, { resolve, reject, timer })
+      this.pending.set(id, entry)
       try {
         this.sendNode(node)
       } catch (e) {
-        clearTimeout(timer)
-        this.pending.delete(id)
+        if (this.pending.get(id) === entry) this.pending.delete(id)
+        clearTimeout(entry.timer)
         reject(e)
       }
     })
@@ -628,15 +672,21 @@ class Socket extends EventEmitter {
 
   startKeepAlive() {
     clearInterval(this.keepAlive)
+    this.keepAlive = null
     this.pingFailures = 0
+    this.pingInFlight = false
     this.lastRecv = Date.now()
     const interval = this.keepAliveIntervalMs
+    if (!interval) return
     this.keepAlive = setInterval(() => {
+      // Nunca se solapan pings: si el anterior sigue pendiente, se espera al siguiente tick.
+      if (this.pingInFlight) return
       if (Date.now() - this.lastRecv > interval * 3 + 5000) {
         this.emit('error', new ZyrixError('connection idle: restarting', { kind: ErrorKind.CLOSED, errorCode: 'CONNECTION_IDLE' }))
         this.transport?.close()
         return
       }
+      this.pingInFlight = true
       this.query({ tag: 'iq', attrs: { to: S_WHATSAPP_NET, type: 'get', xmlns: 'w:p' }, content: [{ tag: 'ping', attrs: {} }] }, 20000)
         .then(() => {
           this.pingFailures = 0
@@ -646,6 +696,9 @@ class Socket extends EventEmitter {
             this.emit('error', new ZyrixError('keepalive failed: restarting the connection', { kind: ErrorKind.CLOSED, errorCode: 'KEEPALIVE_FAILED' }))
             this.transport?.close()
           }
+        })
+        .finally(() => {
+          this.pingInFlight = false
         })
     }, interval)
     this.keepAlive.unref?.()
@@ -678,6 +731,7 @@ class Socket extends EventEmitter {
     this.closing = true
     clearInterval(this.keepAlive)
     clearTimeout(this.qrTimer)
+    this.rejectPending(new ZyrixError('the connection was closed', { kind: ErrorKind.CLOSED, errorCode: 'CONNECTION_CLOSING', code: reason }))
     this.emit('close', { reason, loggedOut: reason === DisconnectReason.loggedOut, reconnecting: false, ...extra })
     this.setConnection({ connection: 'close', lastDisconnect: { reason, date: new Date() } })
     this.transport?.close()
@@ -723,11 +777,7 @@ class Socket extends EventEmitter {
   onClose(code) {
     clearInterval(this.keepAlive)
     clearTimeout(this.qrTimer)
-    for (const p of this.pending.values()) {
-      clearTimeout(p.timer)
-      p.reject(new ZyrixError('connection closed', { kind: ErrorKind.CLOSED }))
-    }
-    this.pending.clear()
+    this.rejectPending(new ZyrixError('connection closed', { kind: ErrorKind.CLOSED, errorCode: 'CONNECTION_CLOSING', code }))
     this.pairingMode = false
     this.pairingReady = false
     if (this.closing) return
@@ -775,7 +825,7 @@ class Socket extends EventEmitter {
     clearInterval(this.keepAlive)
     clearTimeout(this.qrTimer)
     this.transport?.close()
-    for (const p of this.pending.values()) clearTimeout(p.timer)
+    this.rejectPending(new ZyrixError('the socket was ended', { kind: ErrorKind.CLOSED, errorCode: 'CONNECTION_CLOSING' }))
     return this.flushAuth()
   }
 }

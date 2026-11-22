@@ -178,7 +178,7 @@ The kit sends no text of its own. If you do not define the replies, it answers n
 
 Note: if you change a module that a plugin imports, it does not reload on its own. Only the plugin file is reloaded.
 
-Node's ESM loader never frees a module once imported, so every reload keeps the previous version in memory. The kit emits `plugin.warning` every 50 reloads of the same file, and also when `watch: true` is used with `NODE_ENV=production`. Use watch mode while developing and restart the process in production.
+Node's ESM loader never frees a module once imported, so every reload keeps the previous version in memory. The kit emits `plugin.warning` every 50 reloads of the same file, and also when `watch: true` is used with `NODE_ENV=production`. Use watch mode while developing and restart the process in production. With `recursive: true`, subdirectories created after startup are watched and their plugins loaded. `onUnload` and a plugin's `teardown` may be async; `unloadPlugin()` and `stop()` await them and report failures as `plugin.error`.
 
 ### Your own vocabulary
 
@@ -276,6 +276,8 @@ The types are `image`, `video`, `audio`, `document` and `sticker`. You can pass 
 
 `sendAlbum` uploads each image or video and associates them with `MessageAssociation.MEDIA_ALBUM`. It returns the messages and the image and video counts. The protocol does not guarantee every WhatsApp version shows them as a single card.
 
+`readMediaStream(sock, message, mediaType)` is a convenience wrapper, not a streaming download: it first decrypts the whole media into a Buffer and then yields it in 64 KiB chunks, so the memory peak is still the full file. Use `downloadMediaToFile` for large attachments.
+
 A sticker pack is built with `content.stickerPack(...)`. The `pack` file must contain the pack, and each `stickers` entry needs its `fileName`, the emojis and, optionally, metadata. Packs you receive are downloaded with `downloadMedia`.
 
 ### Content builders
@@ -341,6 +343,8 @@ The library fixes permissions on POSIX systems and rejects symlinks for the sess
 
 `useAdapterAuthState(adapter, { encryptionKey })` accepts any object with `{ read(), write(data) }` and encrypts the snapshot if you pass a key. `start`, `createLauncher` and `connect` accept `sessionEncryptionKey` to use the same encryption when they create the session automatically. `memoryAdapter()` and `mongoAdapter(collection, id)` are included; the latter works with the official MongoDB driver. For several sessions, use a different `id` per account (`mongoAdapter(collection, 'bot-a')`, `mongoAdapter(collection, 'bot-b')`); each one ends up in its own document and the adapter enforces a safe limit below the 16 MB BSON cap. A corrupt session throws instead of creating a new one and losing your pairing.
 
+**Upgrade note (0.20.0).** These behaviour changes are intentional: invalid or partial session snapshots now fail instead of being repaired into a new session; two writers of the same session can receive `SESSION_WRITE_CONFLICT` instead of silently overwriting each other; `Transport` is single-use (`TRANSPORT_REUSED`); `pbDecode` rejects field 0, duplicates and non-canonical varints; `store.fromJSON` replaces the stored data and enforces its limits; and `readMediaStream` buffers before yielding 64 KiB chunks.
+
 One limitation is worth keeping in mind: the adapter writes the whole state every time, batched by `debounceMs`, and does not yet write per key. That includes credentials, Signal sessions, sender keys and app-state keys, and it grows with the number of contacts and groups. With `mongoAdapter` the document cannot exceed MongoDB's 16 MB. If you run several sessions in one process, or accounts with heavy activity, use one document per session (the `id` of `mongoAdapter(collection, id)`), raise `debounceMs` and watch the size of `state.json`.
 
 ### Store
@@ -365,7 +369,7 @@ Keepalive closes and restarts the connection after two failed pings or 80 second
 
 ## Errors
 
-Zyrix errors are `ZyrixError`. They carry a `kind` (`timeout`, `closed`, `not-ready`, `rejected`, `invalid`, `no-session`, `decrypt`, `media`, `auth`, `protocol` or `not-found`), a stable `errorCode` from the exported `ErrorCode` catalog (for example `ErrorCode.WEBSOCKET_OPEN_TIMEOUT` or `ErrorCode.MEDIA_URL_NOT_PUBLIC`), a `code` when the server sends one, and `retryable`. `ErrorKind`, `ErrorCode` and `isZyrixError` are exported. Branch on `kind` and `errorCode`, never on `message`: the message text is English and may change between versions.
+Zyrix errors are `ZyrixError`. They carry a `kind` (`timeout`, `closed`, `not-ready`, `rejected`, `invalid`, `no-session`, `decrypt`, `media`, `auth`, `protocol` or `not-found`), a stable `errorCode` from the exported `ErrorCode` catalog (for example `ErrorCode.WEBSOCKET_OPEN_TIMEOUT` or `ErrorCode.MEDIA_URL_BLOCKED`), a `code` when the server sends one, and `retryable`. `ErrorKind`, `ErrorCode` and `isZyrixError` are exported. Branch on `kind` and `errorCode`, never on `message`: the message text is English and may change between versions.
 
 If you do not register `sock.on('error', ...)`, errors are not swallowed: they go to `logger.error` when a `logger` is configured, otherwise they are reported as a `ZyrixWarning` process warning (deduplicated, at most once per minute per message).
 
@@ -413,7 +417,9 @@ Controls what happens when a Signal device you already knew shows up with a new 
 - `'tofu'` rejects the change, and decryption fails until you delete that device's session.
 - A function `(id, newIdentity, storedIdentity) => boolean` lets you decide case by case.
 
-Every identity change, accepted or rejected, emits `identity.changed` with `{ id, accepted }`. The `id` is the device's Signal identifier (`user.device`). It is worth listening to. An identity change is normal when someone reinstalls WhatsApp, but it is also what you would see behind a man in the middle.
+Every change, accepted or rejected, is appended to `state.keys.identityHistory` (last 50 entries) with SHA-256 fingerprints of the previous and new identity, the policy and the decision. If no `identity.changed` listener is registered, the socket reports the change through its logger. This makes a change auditable; it does not establish who owns the new key or remove man-in-the-middle risk without an independent cryptographic review.
+
+Every identity change, accepted or rejected, emits `identity.changed` with `{ id, accepted, policy, at, previous, next }`. `previous` and `next` are SHA-256 fingerprints of the old and new identity keys. The change is also appended to `auth.state.keys.identityHistory` (the last 50 entries), and when nobody is listening to the event the socket logs a warning once per minute per device. The `id` is the device's Signal identifier (`user.device`). An identity change is normal when someone reinstalls WhatsApp, but it is also what you would see behind a man in the middle. This logging makes the change visible; it does not prevent a man-in-the-middle attack. Use `'tofu'` or a function policy if you need to reject unknown identities.
 
 ```js
 sock.on('identity.changed', ({ id, accepted }) => {
@@ -485,9 +491,9 @@ Public information as of November 2026; check each project's docs for the curren
 | Errors | `ZyrixError` with `kind`, stable `errorCode`, `code`, `retryable` | Boom errors |
 | Protocol coverage | No status publishing, raw poll votes, no PN→LID session migration | Status posts, channels and communities |
 | Scale in one process | Whole snapshot per save, sends serialised globally | Key-by-key auth store, `p-queue`, hundreds of sessions reported in production |
-| Validation | 68 unit tests (protocol, Signal interop fixtures, kit) plus a manual checklist on a real account | Jest suite, e2e harness, ~11.6k stars and a large deployment base |
+| Validation | Unit test suite (protocol, Signal interop fixtures, kit and audit regressions) plus a manual checklist on a real account | Jest suite, e2e harness, ~11.6k stars and a large deployment base |
 
-Read it the honest way: if what you need is the widest protocol surface or a long production track record, Baileys is the safer choice. If what you need is a session that is encrypted at rest by default, a connection that recovers on its own and a bot runtime with no framework on top, that is the gap Zyrix fills.
+Read it the honest way: if what you need is the widest protocol surface or a long production track record, Baileys is the safer choice. If what you need is optional authenticated encryption at rest, a connection that recovers on its own and a bot runtime with no framework on top, that is the gap Zyrix fills.
 
 ## Roadmap
 

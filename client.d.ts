@@ -50,6 +50,10 @@ export function createMessageContent(
   content: MessageContent,
   options?: SendOptions,
 ): Promise<Record<string, unknown>>
+/**
+ * Buffered convenience wrapper: downloads and decrypts the whole media first, then yields
+ * it in 64 KiB chunks. It is not a memory-bounded stream; use `downloadMediaToFile()` for that.
+ */
 export function readMediaStream(
   sock: Socket,
   message: Record<string, unknown>,

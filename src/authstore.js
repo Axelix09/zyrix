@@ -1,4 +1,4 @@
-import { initCreds, initKeys } from './auth.js'
+import { initCreds, initKeys, validateSessionSnapshot } from './auth.js'
 import { createSnapshotCodec, validateSessionEncryptionKey } from './auth-snapshot.js'
 import { ZyrixError, ErrorKind } from './errors.js'
 import { MAX_MONGO_DOCUMENT_BYTES } from './auth.js'
@@ -35,8 +35,6 @@ const mongoAdapter = (collection, id = 'zyrix-session') => {
   }
 }
 
-const isPlainObject = (value) => Boolean(value) && typeof value === 'object' && !Array.isArray(value)
-
 const useAdapterAuthState = async (adapter, { debounceMs = 300, encryptionKey: suppliedKey } = {}) => {
   const encryptionKey = validateSessionEncryptionKey(suppliedKey)
   const codec = createSnapshotCodec(encryptionKey)
@@ -51,23 +49,23 @@ const useAdapterAuthState = async (adapter, { debounceMs = 300, encryptionKey: s
     } catch (cause) {
       throw new ZyrixError(`could not read the session from the adapter: ${cause.message}`, { kind: ErrorKind.AUTH, errorCode: cause?.errorCode || 'SESSION_READ_FAILED', cause })
     }
-    if (!isPlainObject(snapshot) || !isPlainObject(snapshot.creds) || !isPlainObject(snapshot.keys)) {
-      throw new ZyrixError('the session stored in the adapter has an invalid format', { kind: ErrorKind.AUTH, errorCode: 'SESSION_SNAPSHOT_INVALID' })
-    }
+    // Igual que el adaptador de archivo: nunca se rellena con initCreds un snapshot que
+    // existe pero no es una sesión válida.
+    validateSessionSnapshot(snapshot, 'SESSION_SNAPSHOT_INVALID')
   }
   const defaults = initKeys()
   const savedKeys = (snapshot && snapshot.keys) || {}
-  for (const key of Object.keys(defaults)) {
-    if (savedKeys[key] !== undefined && !isPlainObject(savedKeys[key])) {
-      throw new ZyrixError(`invalid format for ${key} in the adapter session`, { kind: ErrorKind.AUTH, errorCode: 'SESSION_SNAPSHOT_INVALID' })
-    }
-  }
   const state = {
     creds: Object.assign(initCreds(), (snapshot && snapshot.creds) || {}),
     keys: initKeys(Object.fromEntries(Object.keys(defaults).map((key) => [key, Object.assign(defaults[key], savedKeys[key] || {})])))
   }
 
   const serialize = () => codec.serialize({ creds: state.creds, keys: state.keys })
+  const normalizeRaw = (value) => (value === null || value === undefined ? null : typeof value === 'string' ? value : JSON.stringify(value))
+  // Última versión conocida del documento. Un adaptador genérico solo expone read/write, así
+  // que la estrategia es compare-and-swap optimista: si otra instancia escribió entre medio,
+  // se devuelve un conflicto explícito en lugar de sobrescribir sus cambios.
+  let lastWritten = normalizeRaw(raw)
   const auth = { state, save: null, flush: null, onSaveError: null }
   let timer = null
   let dirty = false
@@ -79,9 +77,19 @@ const useAdapterAuthState = async (adapter, { debounceMs = 300, encryptionKey: s
     if (dirty) {
       dirty = false
       const data = serialize()
-      chain = chain.catch(() => {}).then(() => adapter.write(data)).catch((err) => {
-        dirty = true
-        if (typeof auth.onSaveError === 'function') auth.onSaveError(err)
+      chain = chain.catch(() => {}).then(async () => {
+        const current = normalizeRaw(await adapter.read())
+        if (current !== null && lastWritten !== null && current !== lastWritten) {
+          const conflict = new ZyrixError('the session was modified by another instance since it was read', { kind: ErrorKind.AUTH, errorCode: 'SESSION_WRITE_CONFLICT' })
+          dirty = true
+          if (typeof auth.onSaveError === 'function') auth.onSaveError(conflict)
+          throw conflict
+        }
+        await adapter.write(data)
+        lastWritten = data
+      }).catch((err) => {
+        if (err?.errorCode !== 'SESSION_WRITE_CONFLICT') dirty = true
+        if (err?.errorCode !== 'SESSION_WRITE_CONFLICT' && typeof auth.onSaveError === 'function') auth.onSaveError(err)
         throw err
       })
     }
@@ -98,7 +106,9 @@ const useAdapterAuthState = async (adapter, { debounceMs = 300, encryptionKey: s
     }
   }
   auth.flush = flush
-  await adapter.write(serialize())
+  const initial = serialize()
+  await adapter.write(initial)
+  lastWritten = initial
   return auth
 }
 

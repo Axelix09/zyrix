@@ -63,12 +63,25 @@ export async function createMessageContent(content, options = {}) {
 
 const albumIndex = new Map()
 
+const MEDIA_CHUNK_BYTES = 64 * 1024
+
+/**
+ * Convierte media descargada en un AsyncIterable de trozos. NO es streaming real:
+ * `downloadMedia()` descifra el medio completo en un Buffer antes de devolverlo, así que
+ * el pico de memoria es el tamaño total del archivo. Se entrega en trozos de 64 KiB para
+ * consumidores que prefieran una interfaz iterable; si necesitas memoria acotada usa
+ * `downloadMediaToFile()`.
+ */
 export async function readMediaStream(sock, message, mediaType) {
   if (!sock || typeof sock.downloadMedia !== 'function') {
     throw new TypeError('readMediaStream requires a Zyrix socket')
   }
   const buffer = Buffer.from(await sock.downloadMedia(message, mediaType))
-  return (async function* () { yield buffer })()
+  return (async function* () {
+    for (let offset = 0; offset < buffer.length; offset += MEDIA_CHUNK_BYTES) {
+      yield buffer.subarray(offset, offset + MEDIA_CHUNK_BYTES)
+    }
+  })()
 }
 
 export function attachMessageDelivery(sock) {

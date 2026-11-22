@@ -1,0 +1,724 @@
+{
+  "index.d.ts": {
+    "exports": {
+      "mergeMessages": {
+        "value": true,
+        "kind": "FunctionDeclaration",
+        "signature": "2d51cfe3dfd50844bd032c017a907aa6137aaa5a9a49ec6ba7b7b8bc74bb5685"
+      },
+      "isZyrixError": {
+        "value": true,
+        "kind": "FunctionDeclaration",
+        "signature": "2e43c7f6c705e51eea105e0b1c58e42c70e5133a99db291bc9c8da9d1f0c4e1a"
+      },
+      "useAdapterAuthState": {
+        "value": true,
+        "kind": "FunctionDeclaration",
+        "signature": "e3bee25bfae6c37c3d19bfc4dd780608edce02e9e2bb9a2f2e5daee8920d0d1a"
+      },
+      "useMemoryAuthState": {
+        "value": true,
+        "kind": "FunctionDeclaration",
+        "signature": "18b933e941fd5f6360cf08627f67cee07f5157b3c150554088c7ef339357a942"
+      },
+      "memoryAdapter": {
+        "value": true,
+        "kind": "FunctionDeclaration",
+        "signature": "a8cb4cb4fa8639e1f655276a1c793ea893da5eaa52616e5218b34d72ed5da0a7"
+      },
+      "mongoAdapter": {
+        "value": true,
+        "kind": "FunctionDeclaration",
+        "signature": "62d1bcf70c1b634c214f10da16d3771dc4a4934ef29869bc02a5feadbc0cf913"
+      },
+      "connect": {
+        "value": true,
+        "kind": "FunctionDeclaration",
+        "signature": "6fb31de0fa38331a21ce8440b35db0326a3d460d7efcfa4de4adbb1355a975af"
+      },
+      "makeSocket": {
+        "value": true,
+        "kind": "FunctionDeclaration",
+        "signature": "3d316fc89ec7a58160e439cfba9ca38e230a9e3de38c657fa2e1454d81ae4ef3"
+      },
+      "useFileAuthState": {
+        "value": true,
+        "kind": "FunctionDeclaration",
+        "signature": "a6f36402143ceb732ace18ff2a7e32ff804662b7ebaf05ab2ca2d38e97ff7f5f"
+      },
+      "createStore": {
+        "value": true,
+        "kind": "FunctionDeclaration",
+        "signature": "3a88a66c2f85c78a8f3ad1ef1efe3d5f55e893cb09aca9dbaba290ad880bbe36"
+      },
+      "makeInMemoryStore": {
+        "value": true,
+        "kind": "FunctionDeclaration",
+        "signature": "2ff5ff30be9eef1c7356ea13643b754248f9cc83f17f976ecb91d85fca113c00"
+      },
+      "parseMessage": {
+        "value": true,
+        "kind": "FunctionDeclaration",
+        "signature": "e759d5a0a21eed7b4a4784d41b061e852afbb735718b92ee2aef49be45ac63d2"
+      },
+      "jidDecode": {
+        "value": true,
+        "kind": "FunctionDeclaration",
+        "signature": "c32cc967354861bc043eaaf97fce9a427bad8bc4095dbe317afd1c337f7f20f0"
+      },
+      "jidEncode": {
+        "value": true,
+        "kind": "FunctionDeclaration",
+        "signature": "84b890e7d763ff27e69e822fa907b8080774f4fa438fc3d39ac8331c0a265358"
+      },
+      "normalizeJid": {
+        "value": true,
+        "kind": "FunctionDeclaration",
+        "signature": "68db79acaf77e22646dacf20498e1c5c2a20cfb21eeed911c6605ac228b4c07d"
+      },
+      "jidNormalizedUser": {
+        "value": true,
+        "kind": "FunctionDeclaration",
+        "signature": "c20d266b5675d0a277ee3d386d0cb3532b605793644b9d3ce679fc6ce23058b2"
+      },
+      "jidWithoutDevice": {
+        "value": true,
+        "kind": "FunctionDeclaration",
+        "signature": "330955b23de6a72b7a130f7c7689d697e738201b32dc37f8c338bf42ef32fc39"
+      },
+      "jidType": {
+        "value": true,
+        "kind": "FunctionDeclaration",
+        "signature": "ba990a8bdf782d3a5fc6cba2fea53288293c52040260d8c1d7c6ee55110bd7ff"
+      },
+      "isJidUser": {
+        "value": true,
+        "kind": "FunctionDeclaration",
+        "signature": "28579709e9f0a8d098a4666ad2187bfdf8c20bf9a9852391f64e6f78304c9579"
+      },
+      "isJidLid": {
+        "value": true,
+        "kind": "FunctionDeclaration",
+        "signature": "eb760a64e1759d4a8913ba6abc9f7d54f089ac5860b579e0366db9b797a54065"
+      },
+      "isJidPN": {
+        "value": true,
+        "kind": "FunctionDeclaration",
+        "signature": "a81f93026b16e8d0116113194e7f59d98c70729ef5627ac6e875f11bc33b2861"
+      },
+      "isJidGroup": {
+        "value": true,
+        "kind": "FunctionDeclaration",
+        "signature": "6bf2dcd533c9ad853bb6136650e89ab0bdc99128540936456c18f37400649545"
+      },
+      "createLauncher": {
+        "value": true,
+        "kind": "FunctionDeclaration",
+        "signature": "cd8264051b58340f5f337682605e4344ef883926d8fc650290bb87ec25bcf2a6"
+      },
+      "start": {
+        "value": true,
+        "kind": "FunctionDeclaration",
+        "signature": "0c2cbdf42305c3d2df5bc2d41f2dd3c4d7d3ef94ff89122a14adda9cc06a72a3"
+      },
+      "parsePhoneNumber": {
+        "value": true,
+        "kind": "FunctionDeclaration",
+        "signature": "416e2e369189058a606632f0dbb9907189c9bb5b3d2dcf2911c491014f75947d"
+      },
+      "formatPairingCode": {
+        "value": true,
+        "kind": "FunctionDeclaration",
+        "signature": "ca641ebd76eefd50350b04e7a1653cc0ab431c49809b06e84953b959715cda26"
+      },
+      "promptPhone": {
+        "value": true,
+        "kind": "FunctionDeclaration",
+        "signature": "35fc9c74bb2ba7f0e1962ee1d8ff7ab61f6a7fcaa1b24a223c32c5ef9928b93f"
+      },
+      "reasonName": {
+        "value": true,
+        "kind": "FunctionDeclaration",
+        "signature": "cdb565bfc545d3cf46ce164851a47a3f3a642120e5d4b16cd9d70c016c965674"
+      },
+      "sniffMimeType": {
+        "value": true,
+        "kind": "FunctionDeclaration",
+        "signature": "7e914456c89749b4e30632d846869994cafa640ca5d15225ec252ab8a639a66d"
+      },
+      "MessageKey": {
+        "value": false,
+        "kind": "TypeAliasDeclaration",
+        "signature": "6daf25cecf29d23504140e099c4c2d0db106a020a39bc9dfc2ae3f7244495c9f"
+      },
+      "IncomingMessage": {
+        "value": false,
+        "kind": "TypeAliasDeclaration",
+        "signature": "63554ae86a8bf6dcc1e5fb5304ea45c281c3e0477bb692648a0297dece6b741a"
+      },
+      "SendOptions": {
+        "value": false,
+        "kind": "TypeAliasDeclaration",
+        "signature": "010e07f877368e37cbe0764ae8c3ce40fba8064f431211c0a92be9e8eafcd946"
+      },
+      "ProtocolNode": {
+        "value": false,
+        "kind": "TypeAliasDeclaration",
+        "signature": "bd11b229f1d679e5ce026c7a791544e585fdb5d5f32146eaf1bcfdf5601813ae"
+      },
+      "ButtonOption": {
+        "value": false,
+        "kind": "TypeAliasDeclaration",
+        "signature": "7ebcfcf704781ffa3ca6a2f4d85b4ac59a3b654203baba4b886f71a915007506"
+      },
+      "ListRow": {
+        "value": false,
+        "kind": "TypeAliasDeclaration",
+        "signature": "c5ff861d78bb0fa2fbb88baffd30ebf13ff11410b1c56bf3d557a79d4f9db9e4"
+      },
+      "ListSection": {
+        "value": false,
+        "kind": "TypeAliasDeclaration",
+        "signature": "bc1a65f6a39a8633a4e69e551ae14ee073379fcc443ff5696a973bd234256888"
+      },
+      "GroupParticipant": {
+        "value": false,
+        "kind": "TypeAliasDeclaration",
+        "signature": "667731f80f7055389e8d18cff4b294c695a11945f8518fd7aa557b289df0ca84"
+      },
+      "GroupMetadata": {
+        "value": false,
+        "kind": "TypeAliasDeclaration",
+        "signature": "19bb6a3506ad73f6efa9a85d931c4ab1b0e0fd5345806056bb9073ab005cd1d6"
+      },
+      "MessageContent": {
+        "value": false,
+        "kind": "TypeAliasDeclaration",
+        "signature": "2e0636c0ab9165a4bc0ed9876897e5f5d5c29578ece04e87ef6ac8d69eae8671"
+      },
+      "AuthState": {
+        "value": false,
+        "kind": "TypeAliasDeclaration",
+        "signature": "491b8245f710385e741dbc2202380ddc4647e81972b80b1a3b50675da5d442dd"
+      },
+      "CloseReason": {
+        "value": false,
+        "kind": "TypeAliasDeclaration",
+        "signature": "e89b2fbf6bf8ce578d55a7f1eef6b1913885c7a10ea098540b6f43aacf0cb376"
+      },
+      "SendResult": {
+        "value": false,
+        "kind": "TypeAliasDeclaration",
+        "signature": "09588f1a1d91c1a602ac22233fb7e4044b78956a94bdd99cfb9c46e342c30199"
+      },
+      "MediaInput": {
+        "value": false,
+        "kind": "TypeAliasDeclaration",
+        "signature": "0d17e94b38b7252e6f969a4acb66c972aaefcaf16fbb05e56f644d5931533ee2"
+      },
+      "ParsedMessage": {
+        "value": false,
+        "kind": "TypeAliasDeclaration",
+        "signature": "835f390535e548b8c4203db0d399e4a82fef52b4ebe4d13822b6086b1d1315ad"
+      },
+      "CallEvent": {
+        "value": false,
+        "kind": "TypeAliasDeclaration",
+        "signature": "64c4ffcf1bc8a78967c1024035068bc40fd4b2225d1bed9ff594835a786bbe59"
+      },
+      "GroupParticipantsUpdate": {
+        "value": false,
+        "kind": "TypeAliasDeclaration",
+        "signature": "195a9b9410d865e03a7d05aee2600ba87b1328d9ff4f3398f2fbda54dd07aa4a"
+      },
+      "PresenceState": {
+        "value": false,
+        "kind": "TypeAliasDeclaration",
+        "signature": "fb8abc35b60800610ac2f0af64a1b17f0bfd11cd5b4c8d668e8d0f9df839cb2c"
+      },
+      "ConnectionUpdate": {
+        "value": false,
+        "kind": "TypeAliasDeclaration",
+        "signature": "daec5e4ea990904869fbf3272fc67842131f016625bbd9bfd159c65e8799f6ac"
+      },
+      "TrustPolicy": {
+        "value": false,
+        "kind": "TypeAliasDeclaration",
+        "signature": "14f636bb48c39496f6d140a3033822a30621b9112c05a05b163aa35428f9394c"
+      },
+      "DisconnectReason": {
+        "value": true,
+        "kind": "VariableDeclaration",
+        "signature": "2f3543839f0c72e3b358dec883ab206b2fc256f2324a33fb8ac9d32a3bc7527d"
+      },
+      "ZyrixMessages": {
+        "value": false,
+        "kind": "TypeAliasDeclaration",
+        "signature": "e99219ccfeefcd41035568b66ef05fa3df2426cc4d611f6f14dbea69f1465912"
+      },
+      "DEFAULT_MESSAGES": {
+        "value": true,
+        "kind": "VariableDeclaration",
+        "signature": "5422461be85989d2ec77927921a5b4830e08643ce3048e6b4e29cf1ae1cf9fff"
+      },
+      "MESSAGES_ES": {
+        "value": true,
+        "kind": "VariableDeclaration",
+        "signature": "8271fbd54108e0d2f8e09f0a2d7ef5a0f883fa9c44784b211bac6227f9347f87"
+      },
+      "MediaOptions": {
+        "value": false,
+        "kind": "TypeAliasDeclaration",
+        "signature": "cb1dd6c60d857e106f669af716de2248115f92e51d835880e34a50d86adce40d"
+      },
+      "AlbumItem": {
+        "value": false,
+        "kind": "TypeAliasDeclaration",
+        "signature": "5e2dd1010552ad074277c23564a8c6e56c9191d0da3e4d8ed441f47f081925d2"
+      },
+      "StickerPackSticker": {
+        "value": false,
+        "kind": "TypeAliasDeclaration",
+        "signature": "d4f6ace2616df03ee383bda8ab097cbbdd0e593dcea831588552c56c14a9a7a6"
+      },
+      "StickerPackOptions": {
+        "value": false,
+        "kind": "TypeAliasDeclaration",
+        "signature": "9e8cfc436efa2163bdd0ba01d963d0e8920bc6627513df6739d54a28fc03b69a"
+      },
+      "NewsletterRole": {
+        "value": false,
+        "kind": "TypeAliasDeclaration",
+        "signature": "2258d02feca520a0ea7b89e758f50427b33d9b66e9f0bb170a619b0dc10fde92"
+      },
+      "NewsletterMetadata": {
+        "value": false,
+        "kind": "TypeAliasDeclaration",
+        "signature": "119397f9a80b6977b7dbd14ad227b0f9e269dada3a08112331e511d5e6ddafcc"
+      },
+      "NewslettersApi": {
+        "value": false,
+        "kind": "TypeAliasDeclaration",
+        "signature": "167438fb6d8b0d627cbb2d5b2b68ac0e3ed89296b233fcdf92f3848a27241d51"
+      },
+      "CommunityApi": {
+        "value": false,
+        "kind": "TypeAliasDeclaration",
+        "signature": "e4949e100eefa48a1b8aafb9bfb1c6bf993530d2eaabc89b5aa919813f8ec08c"
+      },
+      "SocketEventMap": {
+        "value": false,
+        "kind": "TypeAliasDeclaration",
+        "signature": "8b51b40d2f87944a31505894b8a45942c5f31b1a4425402fe3aa8d6ff37b3e0f"
+      },
+      "ErrorKindValue": {
+        "value": false,
+        "kind": "TypeAliasDeclaration",
+        "signature": "e88740ad30d97702870f01930d55fd6e0bcafcc01b9982480916cda4b929e484"
+      },
+      "ErrorKind": {
+        "value": true,
+        "kind": "VariableDeclaration",
+        "signature": "c301b292d86962f8827a26aa3109e0c6bca741979e1a0671dcc09a82f24867ce"
+      },
+      "ErrorCodeValue": {
+        "value": false,
+        "kind": "TypeAliasDeclaration",
+        "signature": "ff3813e1c16d7593866f65117837719437a05a7842c83de5e0a429114b0a29df"
+      },
+      "ErrorCode": {
+        "value": true,
+        "kind": "VariableDeclaration",
+        "signature": "b55778337e2f23616dcc511e3a218155444e0758099d29239b60a3b5073cc5ce"
+      },
+      "ZyrixError": {
+        "value": true,
+        "kind": "ClassDeclaration",
+        "signature": "68df9a4152b562aa2d390931bcfb957251a4be578025389e818a887a28652284"
+      },
+      "AskOptions": {
+        "value": false,
+        "kind": "TypeAliasDeclaration",
+        "signature": "454c3cff1cf594b7105aad902f94f8d68d27b75aa921a1b9239f2bd40a9e17df"
+      },
+      "MessageContext": {
+        "value": true,
+        "kind": "ClassDeclaration",
+        "signature": "c22623ae91212b8d4df8dc43797ac9947ed8c2771a3d190db678bd200cd0e1aa"
+      },
+      "SessionEncryptionKey": {
+        "value": false,
+        "kind": "TypeAliasDeclaration",
+        "signature": "cdead4cfc2b6adb4bfff53329ffb65391a0581775915e2b58ab014f8b4433614"
+      },
+      "SessionOptions": {
+        "value": false,
+        "kind": "TypeAliasDeclaration",
+        "signature": "0e26c9be1ea053c232c10fe848090d56487fdd3be918322fdcc98367941b1cff"
+      },
+      "SessionAdapter": {
+        "value": false,
+        "kind": "TypeAliasDeclaration",
+        "signature": "53eb4840373ad01f80a653d0da25f68e8f13cb3128d0ab6959cb669eda9987de"
+      },
+      "MongoSessionCollection": {
+        "value": false,
+        "kind": "TypeAliasDeclaration",
+        "signature": "0c06d935a2406170a5e5cfefd04c692e67c5fbc3c70e3bf13ea544e631081a89"
+      },
+      "MAX_MONGO_DOCUMENT_BYTES": {
+        "value": true,
+        "kind": "VariableDeclaration",
+        "signature": "aca5cf3de581b6d023c575c853188b8a2eb8661fdd5645f41ea1a6e868cf523d"
+      },
+      "ConnectOptions": {
+        "value": false,
+        "kind": "TypeAliasDeclaration",
+        "signature": "a79db1ac6203d9b79df554c25ae417ce8e4e3a0ba8eee00b52df2bdb5c1b3d2d"
+      },
+      "GroupsApi": {
+        "value": false,
+        "kind": "TypeAliasDeclaration",
+        "signature": "ea87218944f07981fbb1057a2cf0e33680ff6dda200454ea727ce3b8672b89e4"
+      },
+      "PrivacyValue": {
+        "value": false,
+        "kind": "TypeAliasDeclaration",
+        "signature": "4bcddabf52a8cd1e9d7abcd95d7632709047fb9429cb49ba7a2d016fed0edda1"
+      },
+      "PrivacyApi": {
+        "value": false,
+        "kind": "TypeAliasDeclaration",
+        "signature": "bbacfa9afc42dec15149d2bb31f2011a58cd35bd38ae340dff7dc422c4095c17"
+      },
+      "ProfileApi": {
+        "value": false,
+        "kind": "TypeAliasDeclaration",
+        "signature": "09a32ce4b374d1012fddd7c5dad955fa0e9f9e4a4888820ac2f2b8ff1e3f7de3"
+      },
+      "BusinessHoursDay": {
+        "value": false,
+        "kind": "TypeAliasDeclaration",
+        "signature": "5af9f919eec80cce3300c9aaf6174be8c2e44fa68b2c17b38181d6fc6becbd4d"
+      },
+      "BusinessProfileUpdate": {
+        "value": false,
+        "kind": "TypeAliasDeclaration",
+        "signature": "404cb8d95cb5c1d3ee26cebb4de80d6dd74d7ea7f53e0139803a2583e81efcb1"
+      },
+      "CatalogProductInput": {
+        "value": false,
+        "kind": "TypeAliasDeclaration",
+        "signature": "c651c7b06c7d11031c6386dd533497e4602bc6d2f06676d82b8349d893d64bef"
+      },
+      "CatalogProductUpdate": {
+        "value": false,
+        "kind": "TypeAliasDeclaration",
+        "signature": "470bd2f05d17310d27e753886b6f8057123d7e8de0c8ce16c369156c7a592d47"
+      },
+      "CatalogProduct": {
+        "value": false,
+        "kind": "TypeAliasDeclaration",
+        "signature": "576b7c116c2dad10d1fcd5577cfc45f0a6d8a87d089076dccc10955b8c6cdaee"
+      },
+      "CatalogCollection": {
+        "value": false,
+        "kind": "TypeAliasDeclaration",
+        "signature": "6c651448dbe8fc2ce0f7ebb34e65b98cf1267169d97b87943f53ce283b7bbf7b"
+      },
+      "BusinessOrderDetails": {
+        "value": false,
+        "kind": "TypeAliasDeclaration",
+        "signature": "9fc0512accecf8435e8f60f50600c5b4dca5915968cffc33c100a9d405f2b6bc"
+      },
+      "BusinessApi": {
+        "value": false,
+        "kind": "TypeAliasDeclaration",
+        "signature": "415b050bd73aff0880a2349ff95c08735728e13c59c450e4bbab2f1a9935c28e"
+      },
+      "ChatsApi": {
+        "value": false,
+        "kind": "TypeAliasDeclaration",
+        "signature": "4b5741eb0a7cf8d54f338df7269d063c32f5d55980daed273f3bac2daf7ae13f"
+      },
+      "PresenceApi": {
+        "value": false,
+        "kind": "TypeAliasDeclaration",
+        "signature": "8540856322a48b1686d19345e67be6663f9d41a639e46edc7d5b39edaaf71aaf"
+      },
+      "Socket": {
+        "value": true,
+        "kind": "ClassDeclaration",
+        "signature": "2a4ef88638a7e416e750d04e854fc213f8764daa4c2c4233f50e836e8cdd0723"
+      },
+      "SocketOptions": {
+        "value": false,
+        "kind": "TypeAliasDeclaration",
+        "signature": "e64a73f9119fe51983a2d92782dd3db6a1854d9604b96bb8d959da8b9f4bca87"
+      },
+      "Store": {
+        "value": false,
+        "kind": "TypeAliasDeclaration",
+        "signature": "56abcacb208379dcdbc18dc50bf641d1987363040f0a547ba14f5bb0d5e48b10"
+      },
+      "proto": {
+        "value": true,
+        "kind": "VariableDeclaration",
+        "signature": "783565dd0ad0e047ff8a5f81a9eaca9edf5e0e7c3507b2a91a3d381afc9b5da1"
+      },
+      "content": {
+        "value": true,
+        "kind": "VariableDeclaration",
+        "signature": "7dc1d199fd63f97b996bf64c87534b280042c1e3ba6c35caa97061dcd05a678f"
+      },
+      "LauncherStatus": {
+        "value": false,
+        "kind": "TypeAliasDeclaration",
+        "signature": "3566ae19013ad5524a8cfbe209027b118d9902ed2b17884fdc5fe127e842089b"
+      },
+      "LauncherIssue": {
+        "value": false,
+        "kind": "TypeAliasDeclaration",
+        "signature": "d0b0b38251a073ed10116d1e498928fe9732bdc3df3ae7d0f55b8e684428d0f7"
+      },
+      "LauncherFatal": {
+        "value": false,
+        "kind": "TypeAliasDeclaration",
+        "signature": "62c4eb3780d8e2d80b56ba994cdcfff772694067caa6196159a8f90bf99f9959"
+      },
+      "LauncherEventMap": {
+        "value": false,
+        "kind": "TypeAliasDeclaration",
+        "signature": "a5f0af19ac7e54fc4a3982a0db5725e27a24f6f1d7da83b956ed3e63b07a3f19"
+      },
+      "LauncherOptions": {
+        "value": false,
+        "kind": "TypeAliasDeclaration",
+        "signature": "6631ea6cae1104093c7e7c406461ea1972308139213904c044482c5282ccea01"
+      },
+      "Launcher": {
+        "value": true,
+        "kind": "ClassDeclaration",
+        "signature": "7f341f18c90ceb0e955679769aba92f451894f0ecf61c017dda2951d7f6fd0ee"
+      },
+      "PromptInput": {
+        "value": false,
+        "kind": "TypeAliasDeclaration",
+        "signature": "c9f44ba9891ea8b03280ea0bd4929116b09bd3e7b41ebb3791a32366b873519f"
+      },
+      "PromptOutput": {
+        "value": false,
+        "kind": "TypeAliasDeclaration",
+        "signature": "e71b6532f00dee3271d776169f0a2c4ef1cfba76da77f32ba6c8d837e5d603f7"
+      },
+      "fetchProtocolVersion": {
+        "value": true,
+        "kind": "FunctionDeclaration",
+        "signature": "bae8d98fe53ae635940d2287c4440d9062f9e1015cd46853523e426326c50e5b"
+      },
+      "useZyrixAuth": {
+        "value": true,
+        "kind": "FunctionDeclaration",
+        "signature": "9fd920ed2a3f0c351ea3515aaac222e04155ea66202e8547174950ea8bb37d65"
+      },
+      "createClient": {
+        "value": true,
+        "kind": "FunctionDeclaration",
+        "signature": "6cdcce6710bedd2223634c558dd5021a7e702fa02099b7905ecbc26e83a410a1"
+      },
+      "createMessageId": {
+        "value": true,
+        "kind": "FunctionDeclaration",
+        "signature": "2422fdb0881344245ce04f648d89fa0cf70cc590b3c6eb8cd87a575e3e0bb37d"
+      },
+      "createMessageEnvelope": {
+        "value": true,
+        "kind": "FunctionDeclaration",
+        "signature": "c0803b3aafdedbf3d8db30173fbfa6c8723041fd694418a7ba826850652c4269"
+      },
+      "createMessage": {
+        "value": true,
+        "kind": "FunctionDeclaration",
+        "signature": "40eeaccb9b4c224cfbfd9f214d23e8652d58946d88df7f6324ed9048b5381cf1"
+      },
+      "createMessageContent": {
+        "value": true,
+        "kind": "FunctionDeclaration",
+        "signature": "b6632b4b1e5ad1c6e07186009eeed6c7ed24ea2b6ac30a9ed166ea6f875a860d"
+      },
+      "readMediaStream": {
+        "value": true,
+        "kind": "FunctionDeclaration",
+        "signature": "2ba445297dcb6064be36ef0284e9ff67941a071508c1402400c8801faa2f0dbd"
+      },
+      "attachMessageDelivery": {
+        "value": true,
+        "kind": "FunctionDeclaration",
+        "signature": "bc686cbfd8ce3a57e9f0d2710c35a353736e164d9da0c87049a2c017931b06a3"
+      },
+      "ClientMessageOptions": {
+        "value": false,
+        "kind": "TypeAliasDeclaration",
+        "signature": "5705be599536bf6405d679327f91643872fa397847178b967ef69d8ec8aa6a75"
+      },
+      "CreateClientOptions": {
+        "value": false,
+        "kind": "TypeAliasDeclaration",
+        "signature": "f97bbb641a62f68fd449d59ff1844a1a7e202963aa2947302bf75c471b028d91"
+      },
+      "ClientSocket": {
+        "value": false,
+        "kind": "TypeAliasDeclaration",
+        "signature": "110612bb9c925623932af4afd825c0626ea95ce8f9340a3a8fae38e4013cbd68"
+      },
+      "clientProfiles": {
+        "value": true,
+        "kind": "VariableDeclaration",
+        "signature": "bc54c164158ce1022ace242e45b054ff45a77b87e4647fe4ae5269521bbbbae0"
+      }
+    }
+  },
+  "client.d.ts": {
+    "exports": {
+      "fetchProtocolVersion": {
+        "value": true,
+        "kind": "FunctionDeclaration",
+        "signature": "bae8d98fe53ae635940d2287c4440d9062f9e1015cd46853523e426326c50e5b"
+      },
+      "useZyrixAuth": {
+        "value": true,
+        "kind": "FunctionDeclaration",
+        "signature": "9fd920ed2a3f0c351ea3515aaac222e04155ea66202e8547174950ea8bb37d65"
+      },
+      "createClient": {
+        "value": true,
+        "kind": "FunctionDeclaration",
+        "signature": "6cdcce6710bedd2223634c558dd5021a7e702fa02099b7905ecbc26e83a410a1"
+      },
+      "createMessageId": {
+        "value": true,
+        "kind": "FunctionDeclaration",
+        "signature": "2422fdb0881344245ce04f648d89fa0cf70cc590b3c6eb8cd87a575e3e0bb37d"
+      },
+      "createMessageEnvelope": {
+        "value": true,
+        "kind": "FunctionDeclaration",
+        "signature": "c0803b3aafdedbf3d8db30173fbfa6c8723041fd694418a7ba826850652c4269"
+      },
+      "createMessage": {
+        "value": true,
+        "kind": "FunctionDeclaration",
+        "signature": "40eeaccb9b4c224cfbfd9f214d23e8652d58946d88df7f6324ed9048b5381cf1"
+      },
+      "createMessageContent": {
+        "value": true,
+        "kind": "FunctionDeclaration",
+        "signature": "b6632b4b1e5ad1c6e07186009eeed6c7ed24ea2b6ac30a9ed166ea6f875a860d"
+      },
+      "readMediaStream": {
+        "value": true,
+        "kind": "FunctionDeclaration",
+        "signature": "2ba445297dcb6064be36ef0284e9ff67941a071508c1402400c8801faa2f0dbd"
+      },
+      "attachMessageDelivery": {
+        "value": true,
+        "kind": "FunctionDeclaration",
+        "signature": "bc686cbfd8ce3a57e9f0d2710c35a353736e164d9da0c87049a2c017931b06a3"
+      },
+      "ClientMessageOptions": {
+        "value": false,
+        "kind": "TypeAliasDeclaration",
+        "signature": "5705be599536bf6405d679327f91643872fa397847178b967ef69d8ec8aa6a75"
+      },
+      "CreateClientOptions": {
+        "value": false,
+        "kind": "TypeAliasDeclaration",
+        "signature": "f97bbb641a62f68fd449d59ff1844a1a7e202963aa2947302bf75c471b028d91"
+      },
+      "ClientSocket": {
+        "value": false,
+        "kind": "TypeAliasDeclaration",
+        "signature": "110612bb9c925623932af4afd825c0626ea95ce8f9340a3a8fae38e4013cbd68"
+      },
+      "clientProfiles": {
+        "value": true,
+        "kind": "VariableDeclaration",
+        "signature": "bc54c164158ce1022ace242e45b054ff45a77b87e4647fe4ae5269521bbbbae0"
+      }
+    }
+  },
+  "kit.d.ts": {
+    "exports": {
+      "createBot": {
+        "value": true,
+        "kind": "FunctionDeclaration",
+        "signature": "1ffc84f183750924291a65af59e8a2480d76c8e67434c1d197468a1f34a3ef04"
+      },
+      "CommandContext": {
+        "value": false,
+        "kind": "TypeAliasDeclaration",
+        "signature": "d768ea25525753c9c6dcddae38fca792feeb6af743bdae4a4bdccd401814956c"
+      },
+      "CommandHandler": {
+        "value": false,
+        "kind": "TypeAliasDeclaration",
+        "signature": "53268dd10c05a2d330e03d51f4c8102c998b7bb6a39e8ad024987095cafeaec0"
+      },
+      "CommandMeta": {
+        "value": false,
+        "kind": "TypeAliasDeclaration",
+        "signature": "32abbf9e9e47de70d276db9e529dd87bd7af04958c718d6c2fae15af336cc13d"
+      },
+      "CommandSpec": {
+        "value": false,
+        "kind": "TypeAliasDeclaration",
+        "signature": "0f1ea7dffe33338b233d4dd0c407ae0bfe9a4aeda3fb466aa1f7f398184c2845"
+      },
+      "CommandEntry": {
+        "value": false,
+        "kind": "TypeAliasDeclaration",
+        "signature": "ef137dac431d6e6d473043b17b057ee22f45739ced842377476226058807e6e4"
+      },
+      "BotMessageKey": {
+        "value": false,
+        "kind": "TypeAliasDeclaration",
+        "signature": "7e67eb06637962a9e2013cce37c14597e935265c7709fb418a389eb03774f6ec"
+      },
+      "BotMessages": {
+        "value": false,
+        "kind": "TypeAliasDeclaration",
+        "signature": "5f00e002a5939402f7e9c48433fbf0226374e2a442f55507dbae5e44596dc656"
+      },
+      "Vocabulary": {
+        "value": false,
+        "kind": "TypeAliasDeclaration",
+        "signature": "3d7eed0d8ef4b6e30fb8ad561530944f6f23584c27fa56604274ac62387f9c49"
+      },
+      "vocabularioEs": {
+        "value": true,
+        "kind": "VariableDeclaration",
+        "signature": "8dcd88a030fa127d8e0ae5e1edbcce42f4b30a51c592a9ed5c70fb930a2c29ba"
+      },
+      "BotOptions": {
+        "value": false,
+        "kind": "TypeAliasDeclaration",
+        "signature": "2c919881ce0aeb1990bd1ca451012da4eac36ee57c364bf460c88d30b3be1eb3"
+      },
+      "Middleware": {
+        "value": false,
+        "kind": "TypeAliasDeclaration",
+        "signature": "553a7dfe7ca33141e5372c1b561991eca51a320259993b61d70512e23a852832"
+      },
+      "BotEventMap": {
+        "value": false,
+        "kind": "TypeAliasDeclaration",
+        "signature": "867f141ef328f4e936d772803228fa4587afb2dd965b4244763b3f4ef4d44c97"
+      },
+      "Bot": {
+        "value": true,
+        "kind": "ClassDeclaration",
+        "signature": "3241f9c5c2acc8b25ff6b1da55f90cc7ce568e831be42f27b861b99d22f53ae4"
+      }
+    }
+  }
+}

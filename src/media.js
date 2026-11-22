@@ -5,7 +5,7 @@ import { randomUUID } from 'crypto'
 import { Readable } from 'node:stream'
 import { pipeline } from 'node:stream/promises'
 import { getChild, getChildren } from './binary.js'
-import { encryptMedia, encryptMediaFile, decryptMedia, decryptMediaToFile } from './mediacrypto.js'
+import { encryptMedia, encryptMediaFileFromHandle, decryptMedia, decryptMediaToFile } from './mediacrypto.js'
 import { postFile } from './upload.js'
 import { S_WHATSAPP_NET as S } from './util.js'
 import { buildMessage, stickerPack, unwrapMessage } from './content.js'
@@ -65,7 +65,15 @@ const mediaUrl = (message) => {
   return url.href
 }
 
-const b64url = (buf) => encodeURIComponent(buf.toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, ''))
+const b64url = (buf) => buf.toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
+// auth/token se codifican con URLSearchParams: '+', '&', '=', '#', '%' y '?' dejan de tener
+// significado especial en la query y no pueden romper ni inyectar parámetros.
+const uploadTarget = (host, pathname, auth, token) => {
+  const url = new URL(`https://${host}${pathname}`)
+  url.searchParams.set('auth', auth)
+  url.searchParams.set('token', token)
+  return url
+}
 const readUploadJson = async (res) => JSON.parse((await readResponse(res, 64 * 1024)).toString('utf8'))
 
 const stageMediaStream = async (input, limit) => {
@@ -172,7 +180,7 @@ export default {
     for (const host of conn.hosts) {
       if (!isAllowedUploadHost(host)) continue
       try {
-        const res = await fetch(`https://${host}${PATH[type]}/${token}?auth=${conn.auth}&token=${token}`, {
+        const res = await fetch(uploadTarget(host, `${PATH[type]}/${token}`, conn.auth, token).href, {
           method: 'POST',
           body: enc.body,
           headers: { 'Content-Type': 'application/octet-stream', Origin: 'https://web.whatsapp.com' },
@@ -193,11 +201,16 @@ export default {
   },
 
   async uploadMediaFile(filePath, type) {
-    const { size } = await fs.promises.stat(filePath)
-    if (size > this.maxFileBytes) throw new RangeError(`file exceeds the ${this.maxFileBytes}-byte limit`)
+    // Un solo open: el descriptor identifica el archivo que se valida y se cifra. O_NOFOLLOW
+    // impide que un symlink plantado entre la validación y la lectura redirija el contenido.
+    const flags = fs.constants.O_RDONLY | (fs.constants.O_NOFOLLOW ?? 0)
+    const handle = await fs.promises.open(filePath, flags)
     const encPath = path.join(os.tmpdir(), `zyrix-${randomUUID()}.enc`)
     try {
-      const enc = await encryptMediaFile(filePath, encPath, type)
+      const info = await handle.stat()
+      if (!info.isFile()) throw new ZyrixError('media path must be a regular file', { kind: ErrorKind.MEDIA, errorCode: 'MEDIA_NOT_A_FILE' })
+      if (info.size > this.maxFileBytes) throw new RangeError(`file exceeds the ${this.maxFileBytes}-byte limit`)
+      const enc = await encryptMediaFileFromHandle(handle, encPath, type, { maxBytes: this.maxFileBytes })
       const { size: encSize } = await fs.promises.stat(encPath)
       const conn = await this.mediaConn()
       const token = b64url(enc.fileEncSha256)
@@ -205,7 +218,8 @@ export default {
       for (const host of conn.hosts) {
         if (!isAllowedUploadHost(host)) continue
         try {
-          const res = await postFile(host, `${PATH[type]}/${token}?auth=${conn.auth}&token=${token}`, encPath, encSize)
+          const target = uploadTarget(host, `${PATH[type]}/${token}`, conn.auth, token)
+          const res = await postFile(host, `${target.pathname}${target.search}`, encPath, encSize)
           if (res.status < 200 || res.status >= 300) {
             if (res.status === 401 || res.status === 403) this.mediaConnCache = null
             lastError = new ZyrixError(`host ${host} responded ${res.status}`, { kind: ErrorKind.MEDIA, errorCode: 'UPLOAD_HOST_ERROR' })
@@ -219,6 +233,7 @@ export default {
       }
       throw new ZyrixError(`media upload failed${lastError ? `: ${lastError.message}` : ''}`, { kind: ErrorKind.MEDIA, errorCode: 'MEDIA_UPLOAD_FAILED', cause: lastError })
     } finally {
+      await handle.close().catch(() => {})
       await fs.promises.rm(encPath, { force: true }).catch(() => {})
     }
   },
@@ -233,7 +248,7 @@ export default {
     for (const host of conn.hosts) {
       if (!isAllowedUploadHost(host)) continue
       try {
-        const res = await fetch(`https://${host}${PATH[mediaType]}/${token}?auth=${conn.auth}&token=${token}`, {
+        const res = await fetch(uploadTarget(host, `${PATH[mediaType]}/${token}`, conn.auth, token).href, {
           method: 'POST',
           body,
           headers: { 'Content-Type': 'application/octet-stream', Origin: 'https://web.whatsapp.com' },

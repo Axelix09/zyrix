@@ -14,7 +14,7 @@ export type CommandMeta = {
   hidden?: boolean
   cooldown?: number
 }
-export type CommandSpec = CommandMeta & { [custom: string]: unknown } & { name?: string; names?: string | string[]; command?: string | string[]; commands?: string | string[] | CommandSpec[]; run?: CommandHandler; handler?: CommandHandler; hears?: { pattern: RegExp | string | ((m: MessageContext) => unknown); run: CommandHandler; group?: boolean }[]; setup?(bot: Bot): unknown; teardown?(): void }
+export type CommandSpec = CommandMeta & { [custom: string]: unknown } & { name?: string; names?: string | string[]; command?: string | string[]; commands?: string | string[] | CommandSpec[]; run?: CommandHandler; handler?: CommandHandler; hears?: { pattern: RegExp | string | ((m: MessageContext) => unknown); run: CommandHandler; group?: boolean }[]; setup?(bot: Bot): unknown; teardown?(): unknown | Promise<unknown> }
 export type CommandEntry = Required<Omit<CommandMeta, 'cooldown' | 'category'>> & { category: string | null; id: string; names: string[]; cooldown?: number; run: CommandHandler; source: string | null }
 export type BotMessageKey = 'groupOnly' | 'privateOnly' | 'ownerOnly' | 'adminOnly' | 'botAdmin' | 'cooldown' | 'error'
 export type BotMessages = Partial<Record<BotMessageKey, string | ((value?: number) => string)>>
@@ -55,16 +55,19 @@ export class Bot {
   command(spec: CommandSpec): this
   hears(pattern: RegExp | string | ((m: MessageContext) => unknown), handler: CommandHandler, meta?: { group?: boolean }): this
   use(fn: Middleware): this
-  onUnload(fn: () => void): this
+  onUnload(fn: () => unknown | Promise<unknown>): this
   isOwner(m: MessageContext): boolean
   list(options?: { showHidden?: boolean }): CommandEntry[]
   menu(options?: { showHidden?: boolean }): { category: string | null; commands: CommandEntry[] }[]
   help(options?: { title?: string; uncategorized?: string; showHidden?: boolean; bullet?: string; dash?: string }): string
   loadPlugin(file: string): Promise<boolean>
-  unloadPlugin(file: string): number
+  /** Awaits async teardown callbacks registered with onUnload(). */
+  unloadPlugin(file: string): Promise<number>
   loadPlugins(dir: string, options?: { watch?: boolean; recursive?: boolean }): Promise<{ loaded: string[]; failed: string[] }>
+  /** With recursive: true, subdirectories created after startup are watched and loaded. */
   watch(dir: string, options?: { recursive?: boolean }): this
-  stop(): void
+  /** Awaits async teardown callbacks. */
+  stop(): Promise<void>
 }
 
 export function createBot(sock: Socket, options?: BotOptions): Bot

@@ -1,4 +1,6 @@
 import fs from 'fs'
+import path from 'node:path'
+import { randomUUID } from 'node:crypto'
 import { jsonReplacer, jsonReviver } from './util.js'
 import { ZyrixError, ErrorKind } from './errors.js'
 
@@ -18,6 +20,17 @@ const createStore = (socket, { maxMessagesPerChat = 200, maxChats = 1000, maxCon
   const contacts = new Map()
   const groups = new Map()
   const presences = new Map()
+  let writeChain = Promise.resolve()
+
+  const assertArray = (value, name) => {
+    if (value === undefined) return []
+    if (!Array.isArray(value)) throw new TypeError(`${name} must be an array`)
+    return value
+  }
+  const assertRecord = (value, name) => {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) throw new TypeError(`${name} must be an object`)
+    return value
+  }
 
   const rememberMessage = (event) => {
     const jid = event.key.remoteJid
@@ -101,22 +114,61 @@ const createStore = (socket, { maxMessagesPerChat = 200, maxChats = 1000, maxCon
         groups: [...groups.values()]
       }
     },
+    // Restaurar datos no puede saltarse los límites del store: se validan tipos y se recortan
+    // mensajes/chats/contactos a los mismos máximos que aplica el uso en memoria.
     fromJSON(data) {
-      if (!data || typeof data !== 'object') throw new TypeError('invalid store data')
-      for (const [jid, list] of data.messages || []) {
+      assertRecord(data, 'store data')
+      if (data.version !== undefined && data.version !== 1) throw new TypeError('unsupported store version')
+      messages.clear()
+      chats.clear()
+      contacts.clear()
+      groups.clear()
+      for (const pair of assertArray(data.messages, 'messages')) {
+        if (!Array.isArray(pair) || pair.length !== 2) throw new TypeError('every messages entry must be [jid, list]')
+        const [jid, list] = pair
+        if (typeof jid !== 'string' || !jid) throw new TypeError('the message jid must be a non-empty string')
         const map = new Map()
-        for (const event of list) map.set(event.key.id, event)
+        for (const event of assertArray(list, 'message list')) {
+          assertRecord(event, 'message event')
+          assertRecord(event.key, 'message key')
+          if (typeof event.key.id !== 'string' || typeof event.key.remoteJid !== 'string') throw new TypeError('the message key needs id and remoteJid')
+          map.set(event.key.id, event)
+        }
+        trim(map, maxMessagesPerChat)
         messages.set(jid, map)
       }
-      for (const chat of data.chats || []) chats.set(chat.id, chat)
-      for (const contact of data.contacts || []) contacts.set(contact.id, contact)
-      for (const group of data.groups || []) groups.set(group.id, group)
+      trim(messages, maxChats)
+      const push = (source, target, max, name) => {
+        for (const item of assertArray(source, name)) {
+          assertRecord(item, name + ' item')
+          if (typeof item.id !== 'string' || !item.id) throw new TypeError(`${name} items need a string id`)
+          touch(target, item.id, item)
+        }
+        trim(target, max)
+      }
+      push(data.chats, chats, maxChats, 'chats')
+      push(data.contacts, contacts, maxContacts, 'contacts')
+      push(data.groups, groups, maxChats, 'groups')
       return store
     },
-    async writeToFile(file) {
-      const temp = `${file}.${process.pid}.tmp`
-      await fs.promises.writeFile(temp, JSON.stringify(store.toJSON(), jsonReplacer), 'utf8')
-      await fs.promises.rename(temp, file)
+    // Serializa las escrituras por destino y usa un temporal único: dos llamadas concurrentes
+    // nunca comparten el mismo archivo temporal ni intercalan rename. Gana la última llamada
+    // (por orden de invocación) y no quedan temporales tras éxito ni tras error.
+    writeToFile(file) {
+      const target = path.resolve(file)
+      const snapshot = JSON.stringify(store.toJSON(), jsonReplacer)
+      const run = writeChain.then(async () => {
+        const temp = `${target}.${process.pid}.${randomUUID()}.tmp`
+        try {
+          await fs.promises.writeFile(temp, snapshot, { encoding: 'utf8', mode: 0o600 })
+          await fs.promises.rename(temp, target)
+        } catch (error) {
+          await fs.promises.rm(temp, { force: true }).catch(() => {})
+          throw error
+        }
+      })
+      writeChain = run.catch(() => {})
+      return run
     },
     readFromFile(file) {
       if (!fs.existsSync(file)) return store

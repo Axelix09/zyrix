@@ -30,15 +30,13 @@ jobs:
       - name: Typecheck public declarations
         run: npm run typecheck
 
-      - name: Generate types from source (drift detection)
-        run: |
-          npm run types:generate
-          if [ -n "$(find types-generated -name '*.d.ts' | head -1)" ]; then
-            echo "Declarations generated successfully"
-          else
-            echo "types:generate produced no declarations" >&2
-            exit 1
-          fi
+      - name: Generate types from source
+        run: npm run types:generate
+
+      # Fails when a public signature changes without regenerating types-surface.json, or
+      # when the declarations and the runtime exports diverge.
+      - name: Public type contract (drift)
+        run: npm run types:check
 
       - name: Tests
         run: npm test

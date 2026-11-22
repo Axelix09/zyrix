@@ -7,6 +7,8 @@ import { S_WHATSAPP_NET as S, num } from './util.js'
 import { ZyrixError, ErrorKind } from './errors.js'
 
 const COLLECTIONS = ['critical_block', 'critical_unblock_low', 'regular_high', 'regular_low', 'regular']
+const MAX_SYNC_PAGES = 20
+const isVersionConflict = (error) => error?.code === 409 || /version|conflict/i.test(String(error?.message || ''))
 const SET = 0
 const REMOVE = 1
 const lthashItem = (value) => hkdf(Buffer.from(value), 128, null, 'WhatsApp Patch Integrity')
@@ -49,6 +51,12 @@ const mix = (state, operation, indexMac, valueMac) => {
   }
 }
 
+const cloneLTHash = (source) => ({
+  version: source.version,
+  hash: Buffer.from(source.hash),
+  indexValueMap: Object.fromEntries(Object.entries(source.indexValueMap || {}).map(([key, entry]) => [key, { valueMac: Buffer.from(entry.valueMac) }]))
+})
+
 export default {
   async syncAppState(names = COLLECTIONS) {
     if (!Object.keys(this.auth.state.keys.appStateKeys).length || this.syncing) return
@@ -64,7 +72,7 @@ export default {
 
   async syncCollection(name) {
     const versions = this.auth.state.keys.appStateVersions
-    for (let guard = 0; guard < 20; guard++) {
+    for (let guard = 0; guard < MAX_SYNC_PAGES; guard++) {
       const version = versions[name] || 0
       const res = await this.query({ tag: 'iq', attrs: { to: S, xmlns: 'w:sync:app:state', type: 'set' }, content: [{ tag: 'sync', attrs: {}, content: [{ tag: 'collection', attrs: { name, version: String(version), return_snapshot: String(!version) } }] }] })
       const col = getChild(getChild(res, 'sync'), 'collection')
@@ -92,6 +100,8 @@ export default {
       this.auth.save()
       if (col.attrs.has_more_updates !== 'true') return
     }
+    // Nunca fingir que una colección quedó sincronizada cuando el servidor sigue paginando.
+    throw new ZyrixError(`app-state collection ${name} still has updates after ${MAX_SYNC_PAGES} pages`, { kind: ErrorKind.PROTOCOL, errorCode: 'APPSTATE_PAGINATION_LIMIT' })
   },
 
   applyMutations(list, collection) {
@@ -145,16 +155,55 @@ export default {
     const encrypted = Buffer.concat([iv, aesCbcEncrypt(encoded, keys.valueEncryptionKey, iv)])
     const valueMac = contentMac(operation, encrypted, keyId, keys.valueMacKey)
     const indexMac = hmacSha256(indexBuffer, keys.indexKey)
-    const lthash = getLTHash(state, type)
-    mix(lthash, operation, indexMac, valueMac)
-    lthash.version += 1
-    const snapshotMac = hmacSha256(Buffer.concat([lthash.hash, to64(lthash.version), Buffer.from(type)]), keys.snapshotMacKey)
-    const patchMac = hmacSha256(Buffer.concat([snapshotMac, valueMac, to64(lthash.version), Buffer.from(type)]), keys.patchMacKey)
-    const patch = { patchMac, snapshotMac, keyId: { id: keyId }, version: { version: lthash.version }, mutations: [{ operation, record: { index: { blob: indexMac }, value: { blob: Buffer.concat([encrypted, valueMac]) }, keyId: { id: keyId } } }] }
-    await this.query({ tag: 'iq', attrs: { to: S, type: 'set', xmlns: 'w:sync:app:state' }, content: [{ tag: 'sync', attrs: {}, content: [{ tag: 'collection', attrs: { name: type, version: String(lthash.version - 1), return_snapshot: 'false' }, content: [{ tag: 'patch', attrs: {}, content: proto.SyncdPatch.encode(patch).finish() }] }] }] })
-    state.keys.appStateVersions[type] = lthash.version
-    this.auth.save()
-    return patch
+    // El patch se calcula sobre una copia y se publica en el estado recién después del ACK.
+    // Si el query falla, LTHash, indexValueMap y versión quedan idénticos al estado previo.
+    // La cola por colección garantiza versiones consecutivas cuando dos patches concurren.
+    // Si el servidor rechaza por versión, se resincroniza la colección y se reintenta una
+    // sola vez con el LTHash reconstruido. Si el reintento o la resincronización fallan, el
+    // error es estable y el estado local sigue intacto.
+    const buildPatch = () => {
+      state.keys.appStateLTHash ||= {}
+      const current = state.keys.appStateLTHash[type] || newLTHash()
+      const candidate = cloneLTHash(current)
+      mix(candidate, operation, indexMac, valueMac)
+      candidate.version += 1
+      const snapshotMac = hmacSha256(Buffer.concat([candidate.hash, to64(candidate.version), Buffer.from(type)]), keys.snapshotMacKey)
+      const patchMac = hmacSha256(Buffer.concat([snapshotMac, valueMac, to64(candidate.version), Buffer.from(type)]), keys.patchMacKey)
+      const patch = { patchMac, snapshotMac, keyId: { id: keyId }, version: { version: candidate.version }, mutations: [{ operation, record: { index: { blob: indexMac }, value: { blob: Buffer.concat([encrypted, valueMac]) }, keyId: { id: keyId } } }] }
+      return { patch, current, candidate }
+    }
+    const sendPatch = ({ patch, current }) => this.query({
+      tag: 'iq',
+      attrs: { to: S, type: 'set', xmlns: 'w:sync:app:state' },
+      content: [{ tag: 'sync', attrs: {}, content: [{ tag: 'collection', attrs: { name: type, version: String(current.version), return_snapshot: 'false' }, content: [{ tag: 'patch', attrs: {}, content: proto.SyncdPatch.encode(patch).finish() }] }] }]
+    })
+    const applyPatch = async () => {
+      for (let attempt = 0; attempt < 2; attempt++) {
+        const built = buildPatch()
+        try {
+          await sendPatch(built)
+          state.keys.appStateLTHash[type] = built.candidate
+          state.keys.appStateVersions[type] = built.candidate.version
+          this.auth.save()
+          return built.patch
+        } catch (error) {
+          if (!isVersionConflict(error)) throw error
+          if (attempt === 1) {
+            throw new ZyrixError('app-state patch was rejected again after resynchronization', { kind: ErrorKind.PROTOCOL, errorCode: 'APPSTATE_PATCH_CONFLICT', cause: error })
+          }
+          try {
+            await this.syncCollection(type)
+          } catch (syncError) {
+            throw new ZyrixError('app-state patch conflicted and the collection could not be resynchronized', { kind: ErrorKind.PROTOCOL, errorCode: 'APPSTATE_PATCH_CONFLICT', cause: syncError })
+          }
+        }
+      }
+    }
+    if (!this.appStateQueues) this.appStateQueues = new Map()
+    const previous = this.appStateQueues.get(type) || Promise.resolve()
+    const run = previous.then(applyPatch, applyPatch)
+    this.appStateQueues.set(type, run.catch(() => {}))
+    return run
   },
 
   async downloadBlobAndApply(ref) { return this.downloadBlob(ref) },

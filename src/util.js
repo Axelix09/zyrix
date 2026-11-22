@@ -107,6 +107,13 @@ const readStreamLimited = async (stream, limit) => {
 }
 
 const BROWSER_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36'
+// En un redirect a otro origen solo viaja lo que no identifica al usuario ni transporta
+// credenciales. Host, Authorization, Cookie, Proxy-Authorization y cualquier x-* se caen.
+const CROSS_ORIGIN_REDIRECT_HEADERS = new Set(['user-agent', 'accept', 'accept-encoding', 'accept-language', 'range', 'if-none-match', 'if-modified-since'])
+const redirectHeaders = (headers, sameOrigin) => {
+  if (sameOrigin) return headers
+  return Object.fromEntries(Object.entries(headers).filter(([name]) => CROSS_ORIGIN_REDIRECT_HEADERS.has(name.toLowerCase())))
+}
 
 const DATA_URL = /^data:([^;,]+)?(;base64)?,/i
 
@@ -219,13 +226,7 @@ const fetchToBuffer = async (url, { limit = Infinity, timeout = 30000, headers =
       res.resume()
       if (!location || redirects === 5) throw new ZyrixError('invalid or too long media redirect', { kind: ErrorKind.MEDIA, errorCode: 'MEDIA_REDIRECT_INVALID' })
       const next = new URL(location, current)
-      if (next.host !== current.host) {
-        const safeHeaders = { ...requestHeaders }
-        for (const name of Object.keys(safeHeaders)) {
-          if (['authorization', 'cookie', 'proxy-authorization'].includes(name.toLowerCase())) delete safeHeaders[name]
-        }
-        requestHeaders = safeHeaders
-      }
+      requestHeaders = redirectHeaders(requestHeaders, next.origin === current.origin)
       current = next
       continue
     }
@@ -302,4 +303,4 @@ const makeLogger = (option) => {
 }
 
 export { S_WHATSAPP_NET, be, readBE, genId, pad, unpad, num, encodeAccount, sleep, TTLCache, jsonReplacer, jsonReviver, toBuffer, makeLogger }
-export { toBuffer as toBufferFetcher, sniffMimeType, BROWSER_UA, assertPublicMediaUrl, publicOnlyLookup, isPublicAddress }
+export { toBuffer as toBufferFetcher, sniffMimeType, BROWSER_UA, assertPublicMediaUrl, publicOnlyLookup, isPublicAddress, redirectHeaders }

@@ -169,7 +169,13 @@ test('signal: trustPolicy tofu rechaza un cambio de identidad y avisa por el hoo
   const id = signal.addrKey(jid)
   assert.equal(await storage.isTrustedIdentity(id, crypto.randomBytes(33)), true, 'primera identidad: se confía')
   assert.equal(await storage.isTrustedIdentity(id, crypto.randomBytes(33)), false, 'identidad distinta: tofu la rechaza')
-  assert.deepEqual(events, [{ id, accepted: false }])
+  assert.equal(events.length, 1)
+  assert.equal(events[0].id, id)
+  assert.equal(events[0].accepted, false)
+  assert.equal(events[0].policy, 'tofu')
+  assert.match(events[0].previous, /^[0-9a-f]{64}$/)
+  assert.match(events[0].next, /^[0-9a-f]{64}$/)
+  assert.equal(bob.keys.identityHistory.length, 1, 'el cambio rechazado queda auditado')
 })
 
 // ---------------------------------------------------------------------------

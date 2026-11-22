@@ -175,7 +175,7 @@ El kit no envía textos propios. Si no defines las respuestas, no contesta nada.
 
 `bot.loadPlugins(dir, { watch, recursive })` carga los archivos `.js` y `.mjs` de una carpeta (ignora los que empiezan con `_`) y los recarga cuando los guardas. Un plugin puede exportar un objeto `{ commands, run, ...meta }`, un arreglo de objetos así, o una función `(bot) => {}`. En el último caso puedes llamar a `bot.onUnload(fn)` para limpiar lo que hayas creado.
 
-El cargador ESM de Node nunca libera un módulo importado, así que cada recarga deja la versión anterior en memoria. El kit emite `plugin.warning` cada 50 recargas del mismo archivo, y también cuando se usa `watch: true` con `NODE_ENV=production`. Usa el modo watch para desarrollar y reinicia el proceso en producción.
+El cargador ESM de Node nunca libera un módulo importado, así que cada recarga deja la versión anterior en memoria. El kit emite `plugin.warning` cada 50 recargas del mismo archivo, y también cuando se usa `watch: true` con `NODE_ENV=production`. Usa el modo watch para desarrollar y reinicia el proceso en producción. Con `recursive: true`, los subdirectorios creados después del inicio se vigilan y sus plugins se cargan. `onUnload` y el `teardown` de un plugin pueden ser async; `unloadPlugin()` y `stop()` los esperan y reportan fallos como `plugin.error`.
 
 Ojo: si cambias un módulo que el plugin importa, no se recarga solo. Solo se recarga el archivo del plugin.
 
@@ -273,6 +273,8 @@ Los tipos son `image`, `video`, `audio`, `document` y `sticker`. Puedes pasar un
 
 `sendAlbum` sube cada imagen o vídeo y los asocia con `MessageAssociation.MEDIA_ALBUM`. Devuelve los mensajes y los contadores de imágenes y vídeos. El protocolo no garantiza que todas las versiones de WhatsApp los muestren como una sola tarjeta.
 
+`readMediaStream(sock, message, mediaType)` es un envoltorio de conveniencia, no una descarga en streaming: primero descifra todo el medio en un Buffer y luego lo entrega en trozos de 64 KiB, así que el pico de memoria sigue siendo el archivo completo. Para adjuntos grandes usa `downloadMediaToFile`.
+
 Un paquete de stickers se crea con `content.stickerPack(...)`. El archivo `pack` tiene que contener el paquete, y cada entrada de `stickers` necesita su `fileName`, los emojis y, si quieres, metadatos. Los paquetes que recibas se descargan con `downloadMedia`.
 
 ### Constructores de contenido
@@ -338,6 +340,8 @@ La biblioteca corrige permisos en sistemas POSIX y rechaza symlinks para la carp
 
 `useAdapterAuthState(adapter, { encryptionKey })` acepta cualquier objeto con `{ read(), write(data) }` y cifra el snapshot si pasas una clave. `start`, `createLauncher` y `connect` aceptan `sessionEncryptionKey` para usar ese mismo cifrado al crear la sesión automáticamente. Vienen incluidos `memoryAdapter()` y `mongoAdapter(collection, id)`, que funciona con el driver oficial de MongoDB. Para varias sesiones, usa un `id` distinto por cuenta (`mongoAdapter(collection, 'bot-a')`, `mongoAdapter(collection, 'bot-b')`); cada una queda en un documento independiente y el adapter aplica un límite seguro por debajo de 16 MB BSON. Si la sesión está corrupta lanza un error, en lugar de crear otra y hacerte perder el emparejamiento.
 
+**Nota de actualización (0.20.0).** Estos cambios de comportamiento son intencionales: los snapshots de sesión inválidos o parciales ahora fallan en vez de repararse como una sesión nueva; dos escritores de la misma sesión pueden recibir `SESSION_WRITE_CONFLICT` en lugar de sobrescribirse en silencio; `Transport` es de un solo uso (`TRANSPORT_REUSED`); `pbDecode` rechaza field 0, duplicados y varints no canónicos; `store.fromJSON` reemplaza los datos y aplica sus límites; y `readMediaStream` bufferiza antes de entregar trozos de 64 KiB.
+
 Hay un límite que conviene tener presente: el adaptador guarda el estado completo cada vez, agrupado por `debounceMs`, y todavía no escribe por clave. Eso incluye credenciales, sesiones Signal, sender keys y claves de app-state, y crece con la cantidad de contactos y grupos. Con `mongoAdapter` el documento no puede pasar de los 16 MB de MongoDB. Si manejas varias sesiones en un proceso, o cuentas con mucha actividad, usa un documento por sesión (el `id` de `mongoAdapter(collection, id)`), sube el `debounceMs` y vigila el tamaño de `state.json`.
 
 ### Store
@@ -362,7 +366,7 @@ El keepalive cierra y reinicia la conexión después de dos pings fallidos o de 
 
 ## Errores
 
-Los errores propios son `ZyrixError`. Tienen un `kind` (`timeout`, `closed`, `not-ready`, `rejected`, `invalid`, `no-session`, `decrypt`, `media`, `auth`, `protocol` o `not-found`), un `errorCode` estable del catálogo exportado `ErrorCode` (por ejemplo `ErrorCode.WEBSOCKET_OPEN_TIMEOUT` o `ErrorCode.MEDIA_URL_NOT_PUBLIC`), un `code` cuando lo manda el servidor y un `retryable`. `ErrorKind`, `ErrorCode` e `isZyrixError` están exportados. Decide según `kind` y `errorCode`, nunca según `message`: el texto está en inglés y puede cambiar entre versiones.
+Los errores propios son `ZyrixError`. Tienen un `kind` (`timeout`, `closed`, `not-ready`, `rejected`, `invalid`, `no-session`, `decrypt`, `media`, `auth`, `protocol` o `not-found`), un `errorCode` estable del catálogo exportado `ErrorCode` (por ejemplo `ErrorCode.WEBSOCKET_OPEN_TIMEOUT` o `ErrorCode.MEDIA_URL_BLOCKED`), un `code` cuando lo manda el servidor y un `retryable`. `ErrorKind`, `ErrorCode` e `isZyrixError` están exportados. Decide según `kind` y `errorCode`, nunca según `message`: el texto está en inglés y puede cambiar entre versiones.
 
 Si no registras `sock.on('error', ...)`, los errores no se pierden: van a `logger.error` si configuraste un `logger`, y si no se reportan como process warning de tipo `ZyrixWarning` (deduplicado, como máximo una vez por minuto por mensaje).
 
@@ -410,7 +414,9 @@ Controla qué pasa cuando un dispositivo Signal que ya conocías aparece con una
 - `'tofu'` rechaza el cambio, y el descifrado falla hasta que borres la sesión de ese dispositivo.
 - Una función `(id, nueva, guardada) => boolean` te deja decidir caso por caso.
 
-Cada cambio de identidad, aceptado o rechazado, emite `identity.changed` con `{ id, accepted }`. El `id` es el identificador Signal del dispositivo (`usuario.dispositivo`). Vale la pena escucharlo. Un cambio de identidad es normal si alguien reinstaló WhatsApp, pero también es lo que verías si hubiera un intermediario.
+Todo cambio, aceptado o rechazado, se agrega a `state.keys.identityHistory` (últimas 50 entradas) con huellas SHA-256 de la identidad anterior y la nueva, la política y la decisión. Si no hay ningún listener de `identity.changed`, el socket informa el cambio por su logger. Esto hace el cambio auditable; no establece quién es dueño de la clave nueva ni elimina el riesgo de man-in-the-middle sin una revisión criptográfica independiente.
+
+Cada cambio de identidad, aceptado o rechazado, emite `identity.changed` con `{ id, accepted, policy, at, previous, next }`. `previous` y `next` son huellas SHA-256 de la clave anterior y la nueva. El cambio también se agrega a `auth.state.keys.identityHistory` (las últimas 50 entradas), y si nadie escucha el evento el socket registra un aviso una vez por minuto por dispositivo. El `id` es el identificador Signal del dispositivo (`usuario.dispositivo`). Un cambio de identidad es normal si alguien reinstaló WhatsApp, pero también es lo que verías si hubiera un intermediario. Este registro hace visible el cambio; no evita un ataque de intermediario. Usa `'tofu'` o una función si necesitas rechazar identidades desconocidas.
 
 ```js
 sock.on('identity.changed', ({ id, accepted }) => {
@@ -482,9 +488,9 @@ Información pública a noviembre de 2026; comprueba la documentación de cada p
 | Errores | `ZyrixError` con `kind`, `errorCode` estable, `code`, `retryable` | Errores de Boom |
 | Cobertura de protocolo | Sin publicar estados, votos de encuesta en crudo, sin migrar sesiones PN→LID | Estados, canales y comunidades |
 | Escala en un proceso | Snapshot completo en cada guardado, envíos serializados globalmente | Store de auth por clave, `p-queue`, cientos de sesiones reportadas en producción |
-| Validación | 68 tests unitarios (protocolo, fixtures de interoperabilidad Signal, kit) más checklist manual con cuenta real | Suite de Jest, arnés e2e, ~11,6k stars y una base de despliegue amplia |
+| Validación | Suite de tests unitarios (protocolo, fixtures de interoperabilidad Signal, kit y regresiones de auditoría) más checklist manual con cuenta real | Suite de Jest, arnés e2e, ~11,6k stars y una base de despliegue amplia |
 
-Léelo de la forma honesta: si lo que necesitas es la superficie de protocolo más amplia o una trayectoria larga en producción, Baileys es la opción más segura. Si lo que necesitas es una sesión cifrada en reposo por defecto, una conexión que se recupera sola y un runtime de bot sin framework encima, ese es el hueco que cubre Zyrix.
+Léelo de la forma honesta: si lo que necesitas es la superficie de protocolo más amplia o una trayectoria larga en producción, Baileys es la opción más segura. Si lo que necesitas es cifrado autenticado en reposo opcional, una conexión que se recupera sola y un runtime de bot sin framework encima, ese es el hueco que cubre Zyrix.
 
 ## Hoja de ruta
 

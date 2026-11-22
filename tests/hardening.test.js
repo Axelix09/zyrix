@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdtemp, readFile, rm, writeFile, stat } from 'node:fs/promises'
+import { copyFile, mkdtemp, readFile, rm, writeFile, stat } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 
@@ -44,17 +44,42 @@ test('socket: si el usuario registra su propio listener, el listener por defecto
   assert.deepEqual(logged, [])
 })
 
-test('auth: un state.json.tmp huérfano de un crash se limpia al abrir y el guardado funciona', async (t) => {
+test('auth: un state.json.tmp válido de un crash entre writeFile y rename se promueve', async (t) => {
   const dir = await mkdtemp(path.join(tmpdir(), 'zyrix-tmp-'))
   t.after(() => rm(dir, { recursive: true, force: true }))
-  await writeFile(path.join(dir, 'state.json.tmp'), 'restos de un proceso que murió')
-  const auth = useFileAuthState(dir, { debounceMs: 1 })
+  const seed = useFileAuthState(dir, { debounceMs: 1 })
+  seed.state.creds.marker = 'recuperado-del-temporal'
+  seed.save()
+  await seed.flush()
+  await copyFile(path.join(dir, 'state.json'), path.join(dir, 'state.json.tmp'))
+  await rm(path.join(dir, 'state.json'))
+
+  const recovered = useFileAuthState(dir, { debounceMs: 1 })
+  assert.equal(recovered.state.creds.marker, 'recuperado-del-temporal')
   await assert.rejects(stat(path.join(dir, 'state.json.tmp')), { code: 'ENOENT' })
-  auth.state.creds.marker = 'ok'
+  await recovered.flush()
+  const saved = JSON.parse(await readFile(path.join(dir, 'state.json'), 'utf8'))
+  assert.equal(saved.creds.marker, 'recuperado-del-temporal')
+})
+
+test('auth: un state.json.tmp inválido sin state.json falla explícitamente en vez de borrarse', async (t) => {
+  const dir = await mkdtemp(path.join(tmpdir(), 'zyrix-tmp-bad-'))
+  t.after(() => rm(dir, { recursive: true, force: true }))
+  await writeFile(path.join(dir, 'state.json.tmp'), 'restos de un proceso que murió')
+  assert.throws(() => useFileAuthState(dir, { debounceMs: 1 }), { errorCode: 'SESSION_TEMP_INVALID' })
+  assert.equal((await readFile(path.join(dir, 'state.json.tmp'), 'utf8')), 'restos de un proceso que murió')
+})
+
+test('auth: un temporal viejo se descarta cuando state.json ya existe', async (t) => {
+  const dir = await mkdtemp(path.join(tmpdir(), 'zyrix-tmp-stale-'))
+  t.after(() => rm(dir, { recursive: true, force: true }))
+  const auth = useFileAuthState(dir, { debounceMs: 1 })
+  auth.state.creds.marker = 'vigente'
   auth.save()
   await auth.flush()
-  const saved = JSON.parse(await readFile(path.join(dir, 'state.json'), 'utf8'))
-  assert.equal(saved.creds.marker, 'ok')
+  await writeFile(path.join(dir, 'state.json.tmp'), 'temporal viejo')
+  useFileAuthState(dir, { debounceMs: 1 })
+  await assert.rejects(stat(path.join(dir, 'state.json.tmp')), { code: 'ENOENT' })
 })
 
 test('auth: save() es barato — serializa recién al escribir, no en cada llamada', async (t) => {
@@ -74,13 +99,13 @@ test('auth: un fallo de escritura deja el estado pendiente y el siguiente flush 
   const dir = await mkdtemp(path.join(tmpdir(), 'zyrix-retry-'))
   t.after(() => rm(dir, { recursive: true, force: true }))
   const auth = useFileAuthState(dir, { debounceMs: 1 })
-  // Un directorio con el nombre del temporal hace fallar la escritura con flag 'wx'.
+  // Un directorio con el nombre del lock hace fallar la adquisición antes de escribir.
   const { mkdir, rmdir } = await import('node:fs/promises')
-  await mkdir(path.join(dir, 'state.json.tmp'))
+  await mkdir(path.join(dir, 'state.json.lock'))
   auth.state.creds.marker = 'pendiente'
   auth.save()
   await assert.rejects(auth.flush())
-  await rmdir(path.join(dir, 'state.json.tmp'))
+  await rmdir(path.join(dir, 'state.json.lock'))
   await auth.flush()
   const saved = JSON.parse(await readFile(path.join(dir, 'state.json'), 'utf8'))
   assert.equal(saved.creds.marker, 'pendiente')

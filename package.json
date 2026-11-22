@@ -1,6 +1,6 @@
 {
   "name": "@axel-dev09/zyrix",
-  "version": "0.19.0",
+  "version": "0.20.0",
   "description": "WhatsApp Web protocol for Node.js over a WebSocket, with encrypted sessions and a built-in bot runtime",
   "author": "Axelix09",
   "license": "MIT",
@@ -71,8 +71,10 @@
   "scripts": {
     "test": "node scripts/check-test-discovery.mjs && node --test",
     "test:run": "node --test",
-    "typecheck": "tsc --noEmit --strict --module NodeNext --moduleResolution NodeNext --target ES2022 --lib ES2022,DOM --skipLibCheck false type-tests/types-smoke.ts index.d.ts client.d.ts kit.d.ts",
+    "typecheck": "tsc --noEmit --strict --module NodeNext --moduleResolution NodeNext --target ES2022 --lib ES2022,DOM --skipLibCheck false type-tests/types-smoke.ts type-tests/negative.ts index.d.ts client.d.ts kit.d.ts",
     "types:generate": "tsc -p tsconfig.types.json",
+    "types:surface": "node scripts/api-surface.mjs --write",
+    "types:check": "node scripts/api-surface.mjs",
     "lint": "eslint .",
     "test:coverage": "node --test --experimental-test-coverage"
   },

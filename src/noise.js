@@ -1,7 +1,18 @@
 import { Curve, sha256, hkdf, gcmEncrypt, gcmDecrypt } from './crypto.js'
 import { WA_HEADER } from './transport.js'
+import { ZyrixError, ErrorKind } from './errors.js'
 
 const MODE = Buffer.from('Noise_XX_25519_AESGCM_SHA256\0\0\0\0')
+const MAX_COUNTER = 0xffffffff
+// El nonce es un contador de 32 bits. Antes de desbordarlo se falla con un error estable en
+// vez de dejar que iv() lance un RangeError crudo desde dentro de un callback del protocolo.
+const nextCounter = (owner, field) => {
+  if (owner[field] === undefined) owner[field] = 0
+  if (!Number.isSafeInteger(owner[field]) || owner[field] < 0 || owner[field] >= MAX_COUNTER) {
+    throw new ZyrixError('the Noise counter is exhausted; the connection must be rekeyed', { kind: ErrorKind.PROTOCOL, errorCode: 'SIGNAL_COUNTER_OVERFLOW' })
+  }
+  return owner[field]++
+}
 const iv = (counter) => {
   const value = Buffer.alloc(12)
   value.writeUInt32BE(counter, 8)
@@ -26,15 +37,15 @@ class Noise {
   }
 
   encrypt(data) {
-    if (this.transport) return gcmEncrypt(Buffer.from(data), this.encKey, iv(this.writeCounter++), Buffer.alloc(0))
-    const result = gcmEncrypt(Buffer.from(data), this.encKey, iv(this.counter++), this.hash)
+    if (this.transport) return gcmEncrypt(Buffer.from(data), this.encKey, iv(nextCounter(this, 'writeCounter')), Buffer.alloc(0))
+    const result = gcmEncrypt(Buffer.from(data), this.encKey, iv(nextCounter(this, 'counter')), this.hash)
     this.authenticate(result)
     return result
   }
 
   decrypt(data) {
-    if (this.transport) return gcmDecrypt(Buffer.from(data), this.decKey, iv(this.readCounter++), Buffer.alloc(0))
-    const result = gcmDecrypt(Buffer.from(data), this.decKey, iv(this.counter++), this.hash)
+    if (this.transport) return gcmDecrypt(Buffer.from(data), this.decKey, iv(nextCounter(this, 'readCounter')), Buffer.alloc(0))
+    const result = gcmDecrypt(Buffer.from(data), this.decKey, iv(nextCounter(this, 'counter')), this.hash)
     this.authenticate(data)
     return result
   }

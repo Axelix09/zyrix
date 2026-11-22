@@ -377,6 +377,10 @@ const unwrapMessage = (message) => {
 
 const extractInteractiveId = (input) => {
   const message = unwrapMessage(input && input.message ? input.message : input)
+  // Respuestas de botones, listas y plantillas: el id viaja en el campo dedicado.
+  if (typeof message?.buttonsResponseMessage?.selectedButtonId === 'string' && message.buttonsResponseMessage.selectedButtonId) return message.buttonsResponseMessage.selectedButtonId
+  if (typeof message?.listResponseMessage?.singleSelectReply?.selectedRowId === 'string' && message.listResponseMessage.singleSelectReply.selectedRowId) return message.listResponseMessage.singleSelectReply.selectedRowId
+  if (typeof message?.templateButtonReplyMessage?.selectedId === 'string' && message.templateButtonReplyMessage.selectedId) return message.templateButtonReplyMessage.selectedId
   const response = message?.interactiveResponseMessage || message?.nativeFlowResponseMessage
   const native = response?.nativeFlowResponseMessage || response
   const raw = native?.paramsJson || native?.messageParamsJson
@@ -392,6 +396,14 @@ const extractInteractiveId = (input) => {
 const extractText = (input) => {
   const message = unwrapMessage(input && input.message ? input.message : input)
   if (!message || typeof message !== 'object') return undefined
+  // Para respuestas de botones/listas el "texto" visible es la etiqueta, no el id.
+  for (const label of [
+    message.buttonsResponseMessage?.selectedDisplayText,
+    message.listResponseMessage?.singleSelectReply?.selectedRowId && message.listResponseMessage?.title,
+    message.templateButtonReplyMessage?.selectedDisplayText
+  ]) {
+    if (typeof label === 'string' && label) return label
+  }
   const interactiveId = extractInteractiveId(message)
   if (interactiveId) return interactiveId
   if (typeof message.conversation === 'string') return message.conversation

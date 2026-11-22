@@ -171,7 +171,7 @@ export type SocketEventMap = {
   'groups.update': (updates: (Partial<GroupMetadata> & { author?: string; timestamp?: number; offline?: boolean })[]) => void
   'presence.update': (update: { id: string; presences: Record<string, { lastKnownPresence: PresenceState; lastSeen?: number }> }) => void
   call: (call: CallEvent) => void
-  'identity.changed': (info: { id: string; accepted?: boolean }) => void
+  'identity.changed': (info: { id: string; accepted?: boolean; policy?: string; at?: number; previous?: string; next?: string }) => void
   'send.warning': (info: { id: string; chat: string; missingDevices: string[] }) => void
   message: (m: MessageContext) => void
   'message.edit': (e: { chat: string; key: MessageKey; author?: string; text?: string; message: Record<string, unknown>; ctx: MessageContext }) => void
@@ -559,7 +559,7 @@ export function makeSocket(options: SocketOptions): Promise<Socket>
 export function useFileAuthState(dir: string, options?: SessionOptions): AuthState
 export function createStore(socket: Socket, options?: { maxMessagesPerChat?: number; maxChats?: number; maxContacts?: number }): Store
 export function makeInMemoryStore(options?: { maxMessagesPerChat?: number; maxChats?: number; maxContacts?: number }): Store & { bind(socket: Socket): Store }
-export function parseMessage(event: IncomingMessage, options?: { self?: string }): ParsedMessage
+export function parseMessage(event: IncomingMessage, options?: { self?: string; aliases?: string[] }): ParsedMessage
 export const proto: Record<string, any>
 export const content: {
   buildMessage(input: MessageContent, options?: SendOptions): Record<string, unknown>

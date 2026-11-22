@@ -33,7 +33,7 @@ const chatPatch = (name, jid, option) => {
 export default {
   parseMessage(event) {
     const me = this.auth.state.creds.me
-    return parseMessage(event, { self: me && me.id })
+    return parseMessage(event, { self: me && me.id, aliases: me?.lid ? [me.lid] : [] })
   },
 
   async sendReceipt(jid, participant, messageIds, type) {

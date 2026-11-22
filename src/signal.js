@@ -17,6 +17,7 @@ const MAX_COUNTER_JUMP = 2000
 const MAX_SKIPPED_PER_CHAIN = 2000
 const MAX_ARCHIVED_SESSIONS = 40
 const MAX_RECEIVING_CHAINS = 5
+const MAX_IDENTITY_HISTORY = 50
 const SENDING = 1
 const RECEIVING = 2
 const BASE_OURS = 1
@@ -54,10 +55,28 @@ const makeStorage = (state, hooks = {}) => {
       }
       const stored = Buffer.from(previous)
       if (stored.length === incoming.length && crypto.timingSafeEqual(stored, incoming)) return true
+      // Política de identidad: `update` (por defecto, compatibilidad) acepta y reemplaza;
+      // `tofu` rechaza; una función decide. Todo cambio, aceptado o rechazado, se registra en
+      // identityHistory (acotado) y se notifica al hook, que el socket expone como
+      // `identity.changed` con huellas anteriores/nuevas. Esto no elimina el riesgo de MITM:
+      // solo lo hace visible y auditable.
       const policy = hooks.trustPolicy || 'update'
       const accept = typeof policy === 'function' ? await policy(id, incoming, stored) : policy === 'update'
+      const record = {
+        id,
+        accepted: Boolean(accept),
+        policy: typeof policy === 'function' ? 'custom' : policy,
+        at: Date.now(),
+        previous: crypto.createHash('sha256').update(stored).digest('hex'),
+        next: crypto.createHash('sha256').update(incoming).digest('hex')
+      }
+      // keys es un Proxy que materializa secciones ausentes como {}: hay que comprobar el
+      // tipo, no solo la verdad del valor, antes de usar un array.
+      if (!Array.isArray(state.keys.identityHistory)) state.keys.identityHistory = []
+      state.keys.identityHistory.push(record)
+      while (state.keys.identityHistory.length > MAX_IDENTITY_HISTORY) state.keys.identityHistory.shift()
       if (accept) state.keys.identityKeys[id] = Buffer.from(incoming)
-      if (typeof hooks.onIdentityChange === 'function') hooks.onIdentityChange({ id, accepted: Boolean(accept) })
+      if (typeof hooks.onIdentityChange === 'function') hooks.onIdentityChange(record)
       return Boolean(accept)
     },
     async loadPreKey(id) {

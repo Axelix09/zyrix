@@ -1,5 +1,5 @@
 import { extractText, extractInteractiveId, unwrapMessage } from './content.js'
-import { jidNormalizedUser, isJidGroup } from './jid.js'
+import { jidNormalizedUser, isJidGroup, userOf } from './jid.js'
 
 const KINDS = [
   ['conversation', 'text'],
@@ -40,7 +40,7 @@ const safeNormalize = (value) => {
 
 const toNumber = (value) => (value && typeof value === 'object' && typeof value.toNumber === 'function' ? value.toNumber() : Number(value || 0))
 
-const parseMessage = (event, { self } = {}) => {
+const parseMessage = (event, { self, aliases = [] } = {}) => {
   if (!event || !event.key || !event.message) throw new TypeError('parseMessage requires a messages.upsert event')
   const { key } = event
   const body = unwrapMessage(event.message) || {}
@@ -51,8 +51,16 @@ const parseMessage = (event, { self } = {}) => {
   const isGroup = isJidGroup(key.remoteJid)
   const context = payload && typeof payload === 'object' ? payload.contextInfo : undefined
 
+  // Todas las identidades propias conocidas (PN y LID). Comparar solo contra `me.id` deja
+  // fuera los mensajes propios direccionados por LID y los quotes con el alias alterno.
+  const selfUsers = new Set()
+  for (const value of [self, ...aliases]) {
+    const user = userOf(safeNormalize(value))
+    if (user) selfUsers.add(user)
+  }
+  const isSelf = (jid) => Boolean(jid) && selfUsers.has(userOf(safeNormalize(jid)))
   const sender = key.fromMe ? safeNormalize(self) : safeNormalize(isGroup ? key.participant : key.remoteJid)
-  const senderAlt = key.fromMe ? undefined : safeNormalize(isGroup ? key.participantAlt : key.remoteJidAlt)
+  const senderAlt = key.fromMe ? safeNormalize(aliases[0]) : safeNormalize(isGroup ? key.participantAlt : key.remoteJidAlt)
 
   let quoted = null
   if (context && context.stanzaId && context.quotedMessage) {
@@ -63,10 +71,10 @@ const parseMessage = (event, { self } = {}) => {
         remoteJidAlt: key.remoteJidAlt,
         participant: context.participant,
         participantAlt: context.participantAlt,
-        fromMe: Boolean(self && context.participant && safeNormalize(context.participant) === safeNormalize(self))
+        fromMe: isSelf(context.participant) || isSelf(context.participantAlt)
       },
       message: context.quotedMessage,
-      sender: safeNormalize(context.participant || (isGroup ? undefined : key.remoteJid))
+      sender: safeNormalize(context.participant || context.participantAlt || (isGroup ? undefined : key.remoteJid))
     }
   }
 

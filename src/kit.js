@@ -89,6 +89,12 @@ class Bot extends EventEmitter {
       run,
       source: this.currentSource
     }
+    // Reemplazar un comando con el mismo id no debe dejar aliases apuntando a la definición
+    // anterior (un unload/recarga de plugin dejaría nombres fantasma ejecutando el run viejo).
+    const previous = this.commands.get(entry.id)
+    if (previous) {
+      for (const name of previous.names) if (this.names.get(name) === previous) this.names.delete(name)
+    }
     this.commands.set(entry.id, entry)
     for (const name of entry.names) this.names.set(name, entry)
     return this
@@ -144,30 +150,39 @@ class Bot extends EventEmitter {
     return null
   }
 
+  releaseCooldown(reservation) {
+    if (reservation && this.cooldowns.get(reservation.key) === reservation.now) this.cooldowns.delete(reservation.key)
+  }
+
   async check(entry, m) {
     if (entry.group && !m.isGroup) return { reason: 'groupOnly' }
     if (entry.private && m.isGroup) return { reason: 'privateOnly' }
     const owner = this.isOwner(m)
     if (entry.owner && !owner) return { reason: 'ownerOnly' }
-    if (entry.admin && !owner) {
-      if (!m.isGroup) return { reason: 'groupOnly' }
-      if (!(await m.isAdmin())) return { reason: 'adminOnly' }
-    }
-    if (entry.botAdmin) {
-      if (!m.isGroup) return { reason: 'groupOnly' }
-      if (!(await m.isBotAdmin())) return { reason: 'botAdmin' }
-    }
+    // La reserva del cooldown ocurre sin ningún await de por medio: dos mensajes concurrentes
+    // no pueden pasar ambos el chequeo y ejecutar el comando dos veces. Los JIDs se normalizan
+    // a la parte de usuario para que un alias :dispositivo no abra un cooldown distinto.
     const seconds = entry.cooldown ?? this.options.cooldown
+    let reservation = null
     if (seconds > 0 && !owner) {
-      const key = `${m.sender}|${entry.id}`
+      const key = `${userOf(m.sender)}|${entry.id}`
       const now = Date.now()
       const last = this.cooldowns.get(key) || 0
       const remaining = last + seconds * 1000 - now
       if (remaining > 0) return { reason: 'cooldown', value: Math.ceil(remaining / 1000) }
       this.cooldowns.set(key, now)
+      reservation = { key, now }
       if (this.cooldowns.size > 5000) {
         for (const [k, t] of this.cooldowns) if (now - t > 3600000) this.cooldowns.delete(k)
       }
+    }
+    if (entry.admin && !owner) {
+      if (!m.isGroup) { this.releaseCooldown(reservation); return { reason: 'groupOnly' } }
+      if (!(await m.isAdmin())) { this.releaseCooldown(reservation); return { reason: 'adminOnly' } }
+    }
+    if (entry.botAdmin) {
+      if (!m.isGroup) { this.releaseCooldown(reservation); return { reason: 'groupOnly' } }
+      if (!(await m.isBotAdmin())) { this.releaseCooldown(reservation); return { reason: 'botAdmin' } }
     }
     return null
   }
@@ -273,7 +288,9 @@ class Bot extends EventEmitter {
     return lines.join('\n')
   }
 
-  removeSource(source) {
+  // Los teardowns pueden ser async: se esperan uno por uno y un fallo se reporta como
+  // plugin.error sin impedir los demás ni dejar una promesa rechazada sin manejar.
+  async removeSource(source) {
     let removed = 0
     for (const [id, entry] of this.commands) {
       if (entry.source !== source) continue
@@ -287,7 +304,7 @@ class Bot extends EventEmitter {
     this.cleanups.delete(source)
     for (const fn of cleanups) {
       try {
-        fn()
+        await fn()
       } catch (error) {
         this.emit('plugin.error', { file: source, error })
       }
@@ -337,7 +354,7 @@ class Bot extends EventEmitter {
         return true
       } catch (error) {
         this.currentSource = null
-        this.removeSource(abs)
+        await this.removeSource(abs)
         this.sock.logger?.error?.({ err: error, file: abs }, 'could not load the plugin')
         this.emit('plugin.error', { file: abs, error })
         return false
@@ -348,9 +365,9 @@ class Bot extends EventEmitter {
     return promise
   }
 
-  unloadPlugin(file, { silent = false } = {}) {
+  async unloadPlugin(file, { silent = false } = {}) {
     const abs = path.resolve(file)
-    const removed = this.removeSource(abs)
+    const removed = await this.removeSource(abs)
     if (!silent && removed) this.emit('plugin.unloaded', { file: abs, commands: removed })
     return removed
   }
@@ -375,6 +392,10 @@ class Bot extends EventEmitter {
     return { loaded, failed }
   }
 
+  // Contrato de watch: con `recursive: true` se vigilan también los subdirectorios creados
+  // después del inicio (se enganchan al aparecer y se desenganchan al desaparecer). Los
+  // plugins de un subdirectorio nuevo se cargan al detectarlo. Los callbacks de teardown
+  // pueden ser async y se esperan en unloadPlugin()/stop().
   watch(dir, { recursive = false } = {}) {
     const abs = path.resolve(dir)
     if (this.watchers.has(abs)) return this
@@ -385,26 +406,69 @@ class Bot extends EventEmitter {
       process.emitWarning(message, { type: 'ZyrixWarning', code: 'PLUGIN_WATCH_IN_PRODUCTION' })
     }
     const timers = new Map()
-    const watchers = []
+    const dirWatchers = new Map()
+    const ignored = (name) => name.startsWith('.') || name === 'node_modules'
     const schedule = (file) => {
       clearTimeout(timers.get(file))
       const timer = setTimeout(() => {
         timers.delete(file)
-        if (fs.existsSync(file)) this.loadPlugin(file)
-        else this.unloadPlugin(file)
+        const job = fs.existsSync(file) ? this.loadPlugin(file) : this.unloadPlugin(file)
+        Promise.resolve(job).catch((error) => this.emit('plugin.error', { file, error }))
       }, 150)
       if (typeof timer.unref === 'function') timer.unref()
       timers.set(file, timer)
     }
-    const attach = (target) => {
-      const watcher = fs.watch(target, (_, name) => {
-        if (!name || !isPluginFile(name)) return
-        schedule(path.resolve(target, name))
-      })
-      watcher.on('error', (error) => this.emit('plugin.error', { file: target, error }))
-      watchers.push(watcher)
+    const loadTree = (target) => {
+      let entries
+      try {
+        entries = fs.readdirSync(target, { withFileTypes: true })
+      } catch {
+        return
+      }
+      for (const entry of entries) {
+        if (entry.isDirectory()) {
+          if (recursive && !ignored(entry.name)) {
+            const child = path.join(target, entry.name)
+            attachDir(child)
+            loadTree(child)
+          }
+        } else if (isPluginFile(entry.name)) {
+          schedule(path.join(target, entry.name))
+        }
+      }
     }
-    attach(abs)
+    const attachDir = (target) => {
+      const existing = dirWatchers.get(target)
+      if (existing) return target
+      let watcher
+      try {
+        watcher = fs.watch(target, (_, name) => {
+          if (!name) return
+          const full = path.resolve(target, name)
+          let info = null
+          try { info = fs.statSync(full) } catch {}
+          if (info?.isDirectory()) {
+            if (!recursive || ignored(name)) return
+            attachDir(full)
+            // Al enganchar un directorio nuevo cargamos lo que ya contiene.
+            loadTree(full)
+            return
+          }
+          if (info && isPluginFile(name)) return schedule(full)
+          if (!info) {
+            const nested = dirWatchers.get(full)
+            if (nested) { nested.close(); dirWatchers.delete(full) }
+            if (isPluginFile(name)) schedule(full)
+          }
+        })
+      } catch {
+        return target
+      }
+      watcher.on('error', (error) => this.emit('plugin.error', { file: target, error }))
+      dirWatchers.set(target, watcher)
+      return target
+    }
+    attachDir(abs)
     if (recursive) {
       const pending = [abs]
       while (pending.length) {
@@ -416,23 +480,30 @@ class Bot extends EventEmitter {
           continue
         }
         for (const entry of entries) {
-          if (!entry.isDirectory() || entry.name.startsWith('.') || entry.name === 'node_modules') continue
+          if (!entry.isDirectory() || ignored(entry.name)) continue
           const full = path.join(current, entry.name)
-          attach(full)
+          attachDir(full)
           pending.push(full)
         }
       }
     }
-    this.watchers.set(abs, { close() { for (const watcher of watchers) watcher.close() } })
+    this.watchers.set(abs, {
+      close() {
+        for (const timer of timers.values()) clearTimeout(timer)
+        timers.clear()
+        for (const watcher of dirWatchers.values()) watcher.close()
+        dirWatchers.clear()
+      }
+    })
     return this
   }
 
-  stop() {
+  async stop() {
     this.sock.off('message', this.handler)
     for (const watcher of this.watchers.values()) watcher.close()
     this.watchers.clear()
     const sources = new Set([...this.commands.values()].map((entry) => entry.source).concat([...this.cleanups.keys()]))
-    for (const source of sources) if (source) this.removeSource(source)
+    for (const source of sources) if (source) await this.removeSource(source)
     this.commands.clear()
     this.names.clear()
     this.hearers = []

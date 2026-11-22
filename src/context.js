@@ -1,7 +1,21 @@
 import { REVOKE_TYPE, EDIT_TYPE, extractText } from './content.js'
+import { userOf } from './jid.js'
 import { sleep } from './util.js'
 
-const userOf = (jid) => (jid ? String(jid).split('@')[0].split(':')[0] : undefined)
+// Aliases de una identidad según el mapeo PN/LID persistido por el socket. Se usa la misma
+// política en menciones, owners y filtros de ask(): nunca igualdad textual contra me.id.
+const aliasesOf = (sock, values) => {
+  const users = new Set()
+  for (const value of [].concat(values)) {
+    if (!value) continue
+    const aliases = sock.getJidAliases?.(value) || [value]
+    for (const alias of aliases) {
+      const user = userOf(alias)
+      if (user) users.add(user)
+    }
+  }
+  return users
+}
 
 class MessageContext {
   constructor(sock, event, parsed) {
@@ -19,8 +33,12 @@ class MessageContext {
   get isMentioned() {
     const me = this.sock.auth.state.creds.me
     if (!me) return false
-    const mine = new Set([me.id, me.lid].filter(Boolean).map(userOf))
-    return (this.mentions || []).some((jid) => mine.has(userOf(jid)))
+    const mine = aliasesOf(this.sock, [me.id, me.lid])
+    return (this.mentions || []).some((jid) => {
+      const mentioned = aliasesOf(this.sock, [jid])
+      for (const user of mentioned) if (mine.has(user)) return true
+      return false
+    })
   }
 
   get hasMedia() {
@@ -95,8 +113,28 @@ class MessageContext {
   }
 
   async ask(prompt, { timeout = 60000, filter, strict = false } = {}) {
-    if (prompt) await this.reply(prompt)
-    const answer = await this.sock.waitForMessage((m) => m.chat === this.chat && m.sender === this.sender && (!filter || filter(m)), timeout)
+    // El listener se registra ANTES de enviar el prompt: una respuesta que llegue mientras
+    // reply() todavía está en vuelo no puede perderse. Si el envío falla, se cancela el
+    // listener y el timer para no dejar nada colgado.
+    const aliases = aliasesOf(this.sock, [this.sender, this.senderAlt])
+    const matches = (m) => {
+      if (m.chat !== this.chat) return false
+      const own = aliasesOf(this.sock, [m.sender, m.senderAlt])
+      let same = false
+      for (const user of own) if (aliases.has(user)) { same = true; break }
+      if (!same) return false
+      return !filter || filter(m)
+    }
+    const controller = new AbortController()
+    const waiting = this.sock.waitForMessage(matches, timeout, { signal: controller.signal })
+    waiting.catch(() => {})
+    try {
+      if (prompt) await this.reply(prompt)
+    } catch (error) {
+      controller.abort()
+      throw error
+    }
+    const answer = await waiting
     if (!answer && strict) {
       const { ZyrixError, ErrorKind } = await import('./errors.js')
       throw new ZyrixError('no reply arrived in time', { kind: ErrorKind.TIMEOUT })
@@ -147,12 +185,16 @@ const socketMixin = {
     }
   },
 
-  waitForMessage(filter = () => true, timeout = 60000) {
+  waitForMessage(filter = () => true, timeout = 60000, { signal } = {}) {
     return new Promise((resolve) => {
+      let settled = false
       const finish = (value) => {
+        if (settled) return
+        settled = true
         clearTimeout(timer)
         this.off('message', onMessage)
         this.off('close', onClose)
+        if (signal) signal.removeEventListener('abort', onAbort)
         resolve(value)
       }
       const onMessage = (m) => {
@@ -161,9 +203,14 @@ const socketMixin = {
       const onClose = (info) => {
         if (info && info.reconnecting === false) finish(null)
       }
+      const onAbort = () => finish(null)
       const timer = setTimeout(() => finish(null), timeout)
       this.on('message', onMessage)
       this.on('close', onClose)
+      if (signal) {
+        if (signal.aborted) return finish(null)
+        signal.addEventListener('abort', onAbort, { once: true })
+      }
     })
   }
 }
