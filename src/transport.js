@@ -11,8 +11,12 @@ const MAX_BUFFER_SIZE = MAX_FRAME_SIZE * 2 + 6
 // no son reutilizables, así que connect() después de un cierre lanza TRANSPORT_REUSED en
 // vez de arrastrar buffer, headerSent u oyentes del intento anterior.
 class Transport extends EventEmitter {
-  constructor() {
+  // createWebSocket y openTimeoutMs existen para tests: el default es el cliente ws real.
+  // Producción no los pasa, así que el comportamiento del handshake no cambia.
+  constructor({ createWebSocket, openTimeoutMs = 20000 } = {}) {
     super()
+    this.createWebSocket = createWebSocket ?? ((url, options) => new WebSocket(url, options))
+    this.openTimeoutMs = openTimeoutMs
     this.ws = null
     this.buffer = Buffer.alloc(0)
     this.headerSent = false
@@ -26,7 +30,7 @@ class Transport extends EventEmitter {
     if (this.used) throw new ZyrixError('a Transport cannot be reused after connect(); create a new one', { kind: ErrorKind.NOT_READY, errorCode: 'TRANSPORT_REUSED' })
     this.used = true
     this.lastError = null
-    this.ws = new WebSocket(WA_URL, {
+    this.ws = this.createWebSocket(WA_URL, {
       origin: 'https://web.whatsapp.com',
       handshakeTimeout: 20000,
       perMessageDeflate: true
@@ -37,7 +41,7 @@ class Transport extends EventEmitter {
         this.emit('error', this.lastError)
       }
       this.close()
-    }, 20000)
+    }, this.openTimeoutMs)
     this.ws.on('open', () => {
       this.opened = true
       clearTimeout(this.openTimer)

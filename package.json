@@ -1,6 +1,6 @@
 {
   "name": "@axel-dev09/zyrix",
-  "version": "0.21.0",
+  "version": "0.21.1",
   "description": "WhatsApp Web protocol for Node.js over a WebSocket, with encrypted sessions and a built-in bot runtime",
   "author": "Axelix09",
   "license": "MIT",
@@ -79,7 +79,9 @@
     "types:surface": "node scripts/api-surface.mjs --write",
     "types:check": "node scripts/api-surface.mjs",
     "lint": "eslint .",
-    "test:coverage": "node --test --experimental-test-coverage"
+    "test:coverage": "node --test --experimental-test-coverage",
+    "readme:stats": "node scripts/readme-stats.mjs --write",
+    "readme:check": "node scripts/readme-stats.mjs --check"
   },
   "dependencies": {
     "@noble/curves": "^2.4.0",

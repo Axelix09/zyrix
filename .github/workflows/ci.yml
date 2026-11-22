@@ -43,9 +43,12 @@ jobs:
 
       # Node 22 supports the coverage threshold flags (Node 20 does not), so the gate runs
       # there. Keep the report in the other matrix entries for visibility.
-      - name: Coverage report and 90% line gate
+      - name: Coverage report, 90% line gate and README stats check
         if: matrix.node == 22
-        run: node --test --experimental-test-coverage --test-coverage-lines=90
+        run: |
+          set -o pipefail
+          node --test --experimental-test-coverage --test-coverage-lines=90 2>&1 | tee coverage-output.txt
+          node scripts/readme-stats.mjs --check --from coverage-output.txt
 
       - name: Coverage report
         if: matrix.node != 22

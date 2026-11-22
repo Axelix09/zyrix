@@ -2,9 +2,10 @@ import fs from 'fs'
 import https from 'https'
 import { ZyrixError, ErrorKind } from './errors.js'
 
-const postFile = (host, pathname, filePath, size, timeoutMs = 120000) =>
+// `request`/`createReadStream` son inyectables para tests; el default es https y fs reales.
+const postFile = (host, pathname, filePath, size, timeoutMs = 120000, { request = https.request, createReadStream = fs.createReadStream } = {}) =>
   new Promise((resolve, reject) => {
-    const req = https.request(
+    const req = request(
       {
         host,
         method: 'POST',
@@ -32,7 +33,7 @@ const postFile = (host, pathname, filePath, size, timeoutMs = 120000) =>
     )
     req.on('error', reject)
     req.setTimeout(timeoutMs, () => req.destroy(new ZyrixError('timed out uploading media', { kind: ErrorKind.TIMEOUT, errorCode: 'UPLOAD_TIMEOUT' })))
-    const input = fs.createReadStream(filePath)
+    const input = createReadStream(filePath)
     input.on('error', (error) => req.destroy(error))
     input.pipe(req)
   })

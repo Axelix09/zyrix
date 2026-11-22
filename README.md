@@ -6,7 +6,7 @@ Zyrix is a Node.js library for WhatsApp bots and automation. It implements the W
 
 WhatsApp Web's protocol changes without notice, and Zyrix is not affiliated with WhatsApp or Meta. The author has tested Zyrix manually against a real WhatsApp account; the automated suite does not connect to the service and does not cover every account or feature, so protocol changes still need re-validation. Use it only with accounts and devices you own or are authorised to use.
 
-> **Project status: beta (0.21.x).** The offline suite has 243 tests and the CI coverage job requires at least 90% of lines across `src/` (94.87% at 0.21.0). Interoperability with a real WhatsApp account is **not yet verified** by this repository, and the cryptography has **not** been independently reviewed. Using an unofficial client can get an account restricted or banned. Read [SECURITY.md](SECURITY.md), [REAL-WORLD-TESTING.md](REAL-WORLD-TESTING.md) and [CONTRIBUTING.md](CONTRIBUTING.md) before relying on Zyrix in production.
+> **Project status: beta (0.21.x).** <!-- zyrix-stats:start -->261 tests and 94.66% line coverage across `src/` (CI fails below 90%)<!-- zyrix-stats:end -->. Interoperability with a real WhatsApp account is **not yet verified** by this repository, and the cryptography has **not** been independently reviewed. Using an unofficial client can get an account restricted or banned. Read [SECURITY.md](SECURITY.md), [REAL-WORLD-TESTING.md](REAL-WORLD-TESTING.md) and [CONTRIBUTING.md](CONTRIBUTING.md) before relying on Zyrix in production.
 
 ## Why Zyrix
 
