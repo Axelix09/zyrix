@@ -1,59 +1,13 @@
 import crypto from 'crypto'
 import { Curve, hmacSha256, hkdf, signalPub, aesCbcEncrypt, aesCbcDecrypt } from './crypto.js'
 import { ZyrixError, ErrorKind } from './errors.js'
+import { pbEncode, pbDecode as decodePb } from './pb.js'
 
 const VERSION = 0x33
 const MAX_SKIP = 2000
 const MAX_SKIPPED = 4096
 
-const varint = (n) => {
-  const out = []
-  while (n > 127) {
-    out.push((n % 128) | 128)
-    n = Math.floor(n / 128)
-  }
-  out.push(n)
-  return Buffer.from(out)
-}
-
-const pbEncode = (fields) =>
-  Buffer.concat(
-    fields.map(([num, val]) =>
-      typeof val === 'number'
-        ? Buffer.concat([varint(num << 3), varint(val)])
-        : Buffer.concat([varint((num << 3) | 2), varint(val.length), Buffer.from(val)])
-    )
-  )
-
-const pbDecode = (buf) => {
-  const out = {}
-  let i = 0
-  const readVarint = () => {
-    let r = 0
-    let s = 1
-    for (let count = 0; count < 10; count++) {
-      const b = buf[i++]
-      if (b === undefined) throw new ZyrixError('truncated protobuf', { kind: ErrorKind.DECRYPT, errorCode: 'SENDER_KEY_MALFORMED' })
-      r += (b & 127) * s
-      if (!(b & 128)) return r
-      s *= 128
-    }
-    throw new ZyrixError('varint too long', { kind: ErrorKind.DECRYPT, errorCode: 'SENDER_KEY_MALFORMED' })
-  }
-  while (i < buf.length) {
-    const tag = readVarint()
-    const field = tag >> 3
-    const wire = tag & 7
-    if (wire === 0) out[field] = readVarint()
-    else if (wire === 2) {
-      const len = readVarint()
-      if (!Number.isSafeInteger(len) || len > buf.length - i) throw new ZyrixError('truncated protobuf field', { kind: ErrorKind.DECRYPT, errorCode: 'SENDER_KEY_MALFORMED' })
-      out[field] = Buffer.from(buf.subarray(i, i + len))
-      i += len
-    } else throw new ZyrixError('unsupported wire type', { kind: ErrorKind.DECRYPT, errorCode: 'SENDER_KEY_MALFORMED' })
-  }
-  return out
-}
+const pbDecode = (buf) => decodePb(buf, 'SENDER_KEY_MALFORMED')
 
 const msgSeed = (chain) => hmacSha256(Buffer.from([1]), chain)
 const nextChain = (chain) => hmacSha256(Buffer.from([2]), chain)
