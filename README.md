@@ -38,7 +38,7 @@ WhatsApp Web's protocol changes without notice, and Zyrix is not affiliated with
 
 ## Installation
 
-You need Node.js 20 or newer (Node 18 reached end of life in April 2025). The package is ESM (`"type": "module"`), so it is imported with `import`, not `require`.
+You need Node.js 20.19 or newer (Node 18 reached end of life in April 2025). The package is ESM (`"type": "module"`), so it is imported with `import`, not `require`.
 
 ```bash
 npm install @axel-dev09/zyrix
@@ -476,24 +476,24 @@ Public information as of November 2026; check each project's docs for the curren
 
 | | Zyrix | Baileys |
 | --- | --- | --- |
-| Licence | GPL-3.0-only, because of `libsignal` | MIT, but it installs GPL-3.0 `libsignal` |
+| Licence | MIT, with an in-house Signal implementation (no `libsignal`) | MIT, but it installs GPL-3.0 `libsignal` |
 | Language | JavaScript with hand-written `.d.ts` | TypeScript, declarations built from source |
 | Session at rest | Encrypted AES-256-GCM + scrypt, atomic write, `0600`, backup, symlink rejection | JSON files; encryption is left to the integrator |
 | Session backends | File, memory, MongoDB, any `{ read, write }`, one document per account | `useMultiFileAuthState` plus community adapters |
 | Connection lifecycle | Built-in launcher: relaunch, reset, deleted-session watcher, signals, pairing code | Assembled by the integrator |
 | Bot runtime | `@axel-dev09/zyrix/kit`: commands, middleware, plugins with hot reload, vocabulary | Not included |
-| Errors | `ZyrixError` with `kind`, `code`, `retryable` | Boom errors |
+| Errors | `ZyrixError` with `kind`, stable `errorCode`, `code`, `retryable` | Boom errors |
 | Protocol coverage | No status publishing, raw poll votes, no PN→LID session migration | Status posts, channels and communities |
 | Scale in one process | Whole snapshot per save, sends serialised globally | Key-by-key auth store, `p-queue`, hundreds of sessions reported in production |
-| Validation | 17 unit tests plus a manual checklist on a real account | Jest suite, e2e harness, ~11.6k stars and a large deployment base |
+| Validation | 68 unit tests (protocol, Signal interop fixtures, kit) plus a manual checklist on a real account | Jest suite, e2e harness, ~11.6k stars and a large deployment base |
 
-Read it the honest way: if what you need is the widest protocol surface or a permissive licence today, Baileys is the safer choice. If what you need is a session that is encrypted at rest by default, a connection that recovers on its own and a bot runtime with no framework on top, that is the gap Zyrix fills.
+Read it the honest way: if what you need is the widest protocol surface or a long production track record, Baileys is the safer choice. If what you need is a session that is encrypted at rest by default, a connection that recovers on its own and a bot runtime with no framework on top, that is the gap Zyrix fills.
 
 ## Roadmap
 
 Where the project is going, not a promise with dates. The order is deliberate, because each item unblocks the next.
 
-1. **A permissive licence.** Write an in-house Signal implementation to replace `libsignal`, so the package can move to MIT or Apache-2.0. There is no drop-in alternative: every maintained JavaScript Signal implementation is GPL-3.0 or stricter. Today the GPL dependency is the single biggest obstacle to adoption in commercial and closed-source projects. The decision and the criteria for a relicense are in [`LICENSING.md`](./LICENSING.md).
+1. **A permissive licence (done in 0.19.0).** `libsignal` was replaced by an in-house Signal implementation and the package moved to MIT. How it was checked is in [`LICENSING.md`](./LICENSING.md).
 2. **Multi-session scale.** Per-key persistence and per-chat send queues, so one process can host many accounts the way production WhatsApp services need.
 3. **Public proof.** A scheduled end-to-end run against a throwaway account, with the results published: sessions, messages, reconnections, decrypt failures.
 4. **Protocol coverage.** Status publishing, poll vote decryption, PN→LID session migration and re-requesting expired media.
@@ -502,7 +502,7 @@ Where the project is going, not a promise with dates. The order is deliberate, b
 
 ## Real WhatsApp validation
 
-Zyrix has been tested manually against real WhatsApp. The automated suite does not repeat those operations; this checklist is for extending the test or repeating it when the protocol or the connection layer changes. Use a test account (not your main one):
+Zyrix has been tested manually against real WhatsApp. The automated suite does not repeat those operations; this checklist is for extending the test or repeating it when the protocol or the connection layer changes. Use a test account (not your main one). The Signal implementation is new in 0.19.0, so run the whole list before relying on it in production:
 
 - Pair by QR and by code, restart the process and confirm the session recovers without pairing again.
 - Message new contacts and contacts who reinstall WhatsApp (`identity.changed`).
@@ -515,10 +515,6 @@ Zyrix has been tested manually against real WhatsApp. The automated suite does n
 
 Run `npm ci`, then `npm test`, `npm run lint`, `npm run typecheck` and `npm run test:coverage`. The CI matrix covers Node 20, 22 and 24, installs from `package-lock.json` and checks that the published package does not ship tests or scripts.
 
-Zyrix is distributed under the GNU GPL v3 (`GPL-3.0-only`). The full text is in [`LICENSE`](./LICENSE). It is GPL because it depends on `libsignal`, which is GPL-3.0: any program that distributes Zyrix together with that dependency must be distributable under a GPL-3.0-compatible licence.
-
-If you only use Zyrix to run your own bot on your server, without distributing the program to other people, you do not have to publish your code. This is general guidance, not legal advice.
-
-The alternatives were evaluated and rejected: there is no permissively licensed replacement for `libsignal`, dual licensing cannot grant rights over someone else's GPL code, and calling the package MIT while a GPL dependency stays on the runtime path would not survive a security review. [`LICENSING.md`](./LICENSING.md) explains what a relicense would require.
+Zyrix is distributed under the MIT License since 0.19.0. The full text is in [`LICENSE`](./LICENSE). Versions up to 0.18.0 were `GPL-3.0-only` because they depended on `libsignal`; that dependency was replaced by an in-house implementation of X3DH and the Double Ratchet. [`LICENSING.md`](./LICENSING.md) explains the change and how it was checked.
 
 Third-party attributions and licences are in [`THIRD_PARTY_NOTICES.md`](./THIRD_PARTY_NOTICES.md).

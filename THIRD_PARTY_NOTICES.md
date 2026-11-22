@@ -8,6 +8,10 @@
 
 Zyrix usa [`@wppconnect/wa-proto`](https://github.com/wppconnect-team/wa-proto), versión 2.3000.1049217119, como dependencia para definiciones Protocol Buffers, distribuida bajo Apache License 2.0.
 
-## Primitivas Signal
+## Curvas elípticas
 
-Zyrix usa el paquete `libsignal` versión 6.0.0 para las primitivas y estructuras del protocolo Signal. Declara licencia GPL-3.0; el texto se incluye en `THIRD_PARTY_LICENSES/libsignal-GPL-3.0.txt`. Por esa dependencia Zyrix se distribuye bajo GPL-3.0-only (ver `LICENSE`). Ten en cuenta esa licencia al redistribuir Zyrix o combinarlo con otros programas. Las licencias MIT y Apache 2.0 de los demás componentes son compatibles con GPL-3.0.
+Zyrix usa [`@noble/curves`](https://github.com/paulmillr/noble-curves), de Paul Miller, para la aritmética de Ed25519 de las firmas XEdDSA. Se distribuye bajo MIT; el texto está en `THIRD_PARTY_LICENSES/noble-curves-MIT.txt`.
+
+## Protocolo Signal
+
+Hasta la versión 0.18.0 Zyrix dependía del paquete `libsignal` (GPL-3.0). Desde 0.19.0 X3DH, el Double Ratchet y el formato de mensajes están implementados en este repositorio a partir de las especificaciones públicas de Signal, sin código de `libsignal`. Todas las licencias de terceros que quedan (MIT, Apache 2.0 y BSD-3-Clause, esta última de `protobufjs`, que trae `@wppconnect/wa-proto`) son compatibles con la licencia MIT de Zyrix.
